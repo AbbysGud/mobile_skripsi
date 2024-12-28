@@ -42,8 +42,6 @@ fun LoginScreen(navController: NavController) {
     var isPasswordVisible by remember { mutableStateOf(false) }
     val openDialogState = remember { mutableStateOf(false) }
     var dialogMessage by remember { mutableStateOf("") }
-    var isForgotPasswordDialogOpen by remember { mutableStateOf(false) }
-    var emailForgot by remember { mutableStateOf("") }
     var emailError by remember { mutableStateOf(false) }
     var passwordError by remember { mutableStateOf(false) }
 
@@ -163,7 +161,7 @@ fun LoginScreen(navController: NavController) {
         Text(
             text = "Lupa Password?",
             modifier = Modifier.clickable {
-                isForgotPasswordDialogOpen = true
+                navController.navigate("forgot_password")
             },
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
@@ -193,76 +191,6 @@ fun LoginScreen(navController: NavController) {
             textAlign = TextAlign.Center
         )
 
-        if (isForgotPasswordDialogOpen) {
-            AlertDialog(
-                onDismissRequest = { isForgotPasswordDialogOpen = false },
-                title = { Text("Lupa Password") },
-                text = {
-                    Column {
-                        Text("Masukkan email untuk reset password:")
-                        OutlinedTextField(
-                            value = emailForgot,
-                            onValueChange = { emailForgot = it },
-                            label = { Text("Email") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                    if (emailForgot.isNotEmpty()) {
-                        val forgotPasswordRequest = ForgotPasswordRequest(emailForgot)
-                        scope.launch {
-                            try {
-                                val response = RetrofitClient.apiService.forgotPassword(forgotPasswordRequest)
-                                if (response.isSuccessful) {
-                                    dialogMessage = "Link reset password telah dikirim ke email Anda."
-                                } else {
-                                    val gson = Gson()
-                                    val errorBody = response.errorBody()?.string()
-                                    dialogMessage = if (!errorBody.isNullOrEmpty()) {
-                                        try {
-                                            val type = object : TypeToken<Map<String, Any>>() {}.type
-                                            val errorMap: Map<String, Any>? = gson.fromJson<Map<String, Any>>(errorBody, type)
-                                            errorMap?.get("message")?.toString() ?: "Error Tidak Terduga."
-                                        } catch (e: Exception) {
-                                            Log.e("Login", "Failed to parse error body: ${e.message}")
-                                            "Error Tidak Terduga.: Gagal dalam Parsing Data."
-                                        }
-                                    } else {
-                                        when (response.code()) {
-                                            400 -> "Invalid email or password. Please try again."
-                                            401 -> "Unauthorized: Incorrect email or password."
-                                            500 -> "Server error. Please try again later."
-                                            else -> "Unexpected error occurred: ${response.message()}."
-                                        }
-                                    }
-                                    dialogMessage = "Terjadi kesalahan saat mengirim email reset password."
-                                }
-                                openDialogState.value = true
-                            } catch (e: Exception) {
-                                dialogMessage = "Terjadi kesalahan: ${e.message}."
-                                openDialogState.value = true
-                            }
-                        }
-                    } else {
-                        dialogMessage = "Email wajib diisi."
-                        openDialogState.value = true
-                    }
-                    isForgotPasswordDialogOpen = false
-                    }) {
-                        Text("Kirim")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { isForgotPasswordDialogOpen = false }) {
-                        Text("Batal")
-                    }
-                }
-            )
-        }
-
-        // Error Dialog
         if (openDialogState.value) {
             AlertDialog(
                 onDismissRequest = { openDialogState.value = false },

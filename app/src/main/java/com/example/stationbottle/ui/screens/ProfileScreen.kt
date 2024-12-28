@@ -1,24 +1,29 @@
 package com.example.stationbottle.ui.screens
 
-import android.util.Log
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.sp
-import com.example.compose.AppTheme
-import com.example.stationbottle.models.UserViewModel
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import com.example.compose.AppTheme
+import com.example.stationbottle.models.UserViewModel
 
 @Composable
-fun HomeScreen(navController: NavController) {
+fun ProfileScreen(navController: NavController) {
     val context = LocalContext.current
     val userViewModel = UserViewModel()
     val userState = userViewModel.getUser(context).collectAsState(initial = null)
@@ -30,7 +35,7 @@ fun HomeScreen(navController: NavController) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Home Screen",
+            text = "Profile Screen",
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
@@ -38,11 +43,9 @@ fun HomeScreen(navController: NavController) {
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "Selamat Datang di Home",
+            text = "Selamat Datang di Profile",
             fontSize = 16.sp
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         if (user != null) {
             Text(text = "Token: ${user.token}")
@@ -68,9 +71,9 @@ fun HomeScreen(navController: NavController) {
 
 @Preview(showBackground = true)
 @Composable
-fun HomeScreenPreview() {
+fun ProfileScreenPreview() {
     AppTheme {
         val navController = rememberNavController()
-        HomeScreen(navController)
+        ProfileScreen(navController)
     }
 }

@@ -126,7 +126,7 @@ fun RegisterScreen(navController: NavController) {
         OutlinedTextField(
             value = confirmPassword,
             onValueChange = { confirmPassword = it },
-            label = { Text(text = "Confirm Password") },
+            label = { Text(text = "Konfirmasi Password") },
             visualTransformation = if (isConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { isConfirmPasswordVisible = !isConfirmPasswordVisible }) {

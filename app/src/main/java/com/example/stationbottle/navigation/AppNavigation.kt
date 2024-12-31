@@ -3,16 +3,17 @@ package com.example.stationbottle.navigation
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -67,7 +68,12 @@ fun AppNavigation() {
 }
 
 @Composable
-fun BottomNavigationBar(navController: NavController) {
+fun BottomNavigationBar(
+    navController: NavController,
+    backgroundColor: Color = MaterialTheme.colorScheme.primary,
+    contentColor: Color = MaterialTheme.colorScheme.onPrimary,
+    selectedContentColor: Color = MaterialTheme.colorScheme.secondary
+) {
     val items = listOf(
         BottomNavItem("Home", Icons.Default.Home, "home"),
         BottomNavItem("Stasiun", Icons.Default.Build, "station"),
@@ -75,8 +81,13 @@ fun BottomNavigationBar(navController: NavController) {
         BottomNavItem("Profile", Icons.Default.Person, "profile"),
     )
 
-    NavigationBar {
-        val currentRoute = navController.currentBackStackEntry?.destination?.route
+    // Pantau perubahan rute saat ini
+    val currentRoute = navController.currentBackStackEntryFlow.collectAsState(initial = null).value?.destination?.route
+
+    NavigationBar(
+        containerColor = backgroundColor,
+        contentColor = contentColor
+    ) {
         items.forEach { item ->
             NavigationBarItem(
                 icon = { Icon(item.icon, contentDescription = item.title) },
@@ -90,7 +101,13 @@ fun BottomNavigationBar(navController: NavController) {
                         launchSingleTop = true
                         restoreState = true
                     }
-                }
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = selectedContentColor,
+                    selectedTextColor = MaterialTheme.colorScheme.onSecondary,
+                    unselectedIconColor = contentColor.copy(alpha = 0.7f),
+                    unselectedTextColor = contentColor.copy(alpha = 0.7f)
+                )
             )
         }
     }

@@ -27,13 +27,8 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.compose.AppTheme
 import com.example.stationbottle.R
-import com.example.stationbottle.data.ForgotPasswordRequest
 import com.example.stationbottle.data.LoginRequest
-import com.example.stationbottle.data.RetrofitClient
 import com.example.stationbottle.models.UserViewModel
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(navController: NavController) {

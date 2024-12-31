@@ -10,14 +10,19 @@ import com.example.stationbottle.data.ApiService
 import com.example.stationbottle.data.LoginRequest
 import com.example.stationbottle.data.RegisterRequest
 import com.example.stationbottle.data.RetrofitClient
+import com.example.stationbottle.data.UpdateUserRequest
 import com.example.stationbottle.data.UserDataStore
+import com.example.stationbottle.data.convertUtcToWIB
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import retrofit2.awaitResponse
 
@@ -25,12 +30,16 @@ import retrofit2.awaitResponse
 data class User(
     val token: String,
     val id: Int,
-    val email: String,
     val name: String? = null,
-    val age: Int? = null,
-    val weight: Float? = null,
-    val dailyGoal: Float? = null,
-    val rfidTag: String? = null
+    val email: String,
+    val date_of_birth: String? = null,
+    val weight: Double? = null,
+    val height: Double? = null,
+    val gender: String? = null,
+    val pregnancy_date: String? = null,
+    val breastfeeding_date: String? = null,
+    val daily_goal: Double? = null,
+    val rfid_tag: String? = null
 )
 
 class UserViewModel : ViewModel() {
@@ -67,14 +76,20 @@ class UserViewModel : ViewModel() {
                             id = loginResponse.data.id,
                             email = loginResponse.data.email,
                             name = loginResponse.data.name,
-                            age = loginResponse.data.age,
-                            weight = loginResponse.data.weight.toFloat(),
-                            dailyGoal = loginResponse.data.daily_goal.toFloat(),
-                            rfidTag = loginResponse.data.rfid_tag
+                            date_of_birth = convertUtcToWIB(loginResponse.data.date_of_birth),
+                            weight = loginResponse.data.weight,
+                            height = loginResponse.data.height,
+                            gender = loginResponse.data.gender,
+                            pregnancy_date = convertUtcToWIB(loginResponse.data.pregnancy_date),
+                            breastfeeding_date = convertUtcToWIB(loginResponse.data.breastfeeding_date),
+                            daily_goal = loginResponse.data.daily_goal,
+                            rfid_tag = loginResponse.data.rfid_tag
                         )
                         userViewModel.saveUser(context, user)
-                        Toast.makeText(context, "Login Berhasil, Selamat Datang ${user.name}", Toast.LENGTH_SHORT).show()
-                        navController.navigate("home")
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Login Berhasil, Selamat Datang ${user.name}", Toast.LENGTH_SHORT).show()
+                            navController.navigate("home")
+                        }
                     } else {
                         onDialogMessageChange("Login Gagal: Data Anda Kosong.")
                         onOpenDialogChange(true)
@@ -109,23 +124,23 @@ class UserViewModel : ViewModel() {
         }
     }
 
-    fun logoutUser(context: Context, token: String) {
+    fun logoutUser(context: Context, token: String, navController: NavController) {
         viewModelScope.launch {
             try {
                 val response = RetrofitClient.apiService.logout("Bearer $token")
-
                 if (response.isSuccessful) {
                     Log.i("Logout", "Logout Berhasil")
-                    Toast.makeText(context, "Logout Berhasil!", Toast.LENGTH_SHORT).show()
-                    UserDataStore.clearUser(context)
+                    withContext(Dispatchers.Main) {
+                        UserDataStore.clearUser(context)
+                        Toast.makeText(context, "Logout Berhasil!", Toast.LENGTH_SHORT).show()
+                        navController.navigate("login")
+                    }
                     _userState.value = null
                 } else {
                     Log.i("Logout", "Logout Gagal ${response.errorBody()?.string()}")
                 }
-            } catch (e: HttpException) {
-                Log.i("Logout", "Logout Gagal 1, $e")
             } catch (e: Exception) {
-                Log.i("Logout", "Logout Gagal 2, $e")
+                Log.e("Logout", "Logout Gagal: ${e.message}")
             }
         }
     }
@@ -179,6 +194,81 @@ class UserViewModel : ViewModel() {
             } catch (e: Exception) {
                 onDialogMessageChange("Internet error: ${e.message}. Cek Koneksi Anda dan Coba Lagi.")
                 onOpenDialogChange(true)
+            }
+        }
+    }
+
+    fun getUserData(context: Context, userId: Int, token: String) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.apiService.getUserData(userId)
+                val user = User(
+                    token = token,
+                    id = response.data.id,
+                    name = response.data.name,
+                    email = response.data.email,
+                    date_of_birth = convertUtcToWIB(response.data.date_of_birth),
+                    weight = response.data.weight,
+                    height = response.data.height,
+                    gender = response.data.gender,
+                    pregnancy_date = convertUtcToWIB(response.data.pregnancy_date),
+                    breastfeeding_date = convertUtcToWIB(response.data.breastfeeding_date),
+                    daily_goal = response.data.daily_goal,
+                    rfid_tag = response.data.rfid_tag
+                )
+                saveUser(context, user)
+            } catch (e: Exception) {
+                Log.e("UserViewModel", "Failed to fetch user data: ${e.message}")
+            }
+        }
+    }
+
+    fun updateUser(
+        navController: NavController,
+        context: Context,
+        userId: Int,
+        updateRequest: UpdateUserRequest,
+        token: String
+    ) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.apiService.updateUserData(userId, updateRequest)
+                val currentUser = _userState.value ?: User(
+                    token,
+                    userId,
+                    null,
+                    "",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                )
+                val updatedUser = currentUser.copy(
+                    name = response.data.name,
+                    date_of_birth = response.data.date_of_birth,
+                    weight = response.data.weight,
+                    height = response.data.height,
+                    gender = response.data.gender,
+                    pregnancy_date = response.data.pregnancy_date,
+                    breastfeeding_date = response.data.breastfeeding_date,
+                    daily_goal = response.data.daily_goal,
+                    rfid_tag = response.data.rfid_tag
+                )
+                saveUser(context, updatedUser)
+                withContext(Dispatchers.Main) {
+                    navController.navigate("profile")
+                    Toast.makeText(context, "Profile berhasil diupdate!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("UserViewModel", "Gagal Update Data: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    navController.navigate("profile")
+                    Toast.makeText(context, "Gagal memperbarui profile.", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

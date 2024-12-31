@@ -44,25 +44,6 @@ fun HomeScreen(navController: NavController) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (user != null) {
-            Text(text = "Token: ${user.token}")
-            Text(text = "Id: ${user.id}")
-            Text(text = "Email: ${user.email}")
-            Text(text = "Nama: ${user.name}")
-        }
-
-        Button(
-            onClick = {
-                user?.token?.let { token ->
-                    userViewModel.logoutUser(context, token)
-                    navController.navigate("login")
-                }
-            },
-            modifier = Modifier.fillMaxWidth(0.6f)
-        ) {
-            Text(text = "Logout")
-        }
-
     }
 }
 

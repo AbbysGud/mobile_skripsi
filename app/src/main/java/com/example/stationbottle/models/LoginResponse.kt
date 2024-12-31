@@ -8,10 +8,14 @@ data class LoginResponse(
 
 data class UserData(
     val id: Int,
-    val email: String,
     val name: String,
-    val age: Int,
-    val weight: Int,
+    val email: String,
+    val date_of_birth: String,
+    val weight: Double,
+    val height: Double,
+    val gender: String,
+    val pregnancy_date: String?,
+    val breastfeeding_date: String?,
     val daily_goal: Double,
     val rfid_tag: String,
     val email_verified_at: String?,

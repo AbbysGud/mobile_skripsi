@@ -1,11 +1,6 @@
 package com.example.stationbottle.navigation
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -14,8 +9,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
@@ -23,6 +18,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.stationbottle.models.UserViewModel
 import com.example.stationbottle.ui.screens.*
+import com.example.stationbottle.R
+import com.example.stationbottle.data.MQTTClient
 
 @Composable
 fun AppNavigation() {
@@ -75,10 +72,10 @@ fun BottomNavigationBar(
     selectedContentColor: Color = MaterialTheme.colorScheme.secondary
 ) {
     val items = listOf(
-        BottomNavItem("Home", Icons.Default.Home, "home"),
-        BottomNavItem("Stasiun", Icons.Default.Build, "station"),
-        BottomNavItem("History", Icons.Default.Info, "history"),
-        BottomNavItem("Profile", Icons.Default.Person, "profile"),
+        BottomNavItem("Home", R.drawable.outline_home_24, "home"), // Ganti dengan drawable
+        BottomNavItem("Stasiun", R.drawable.outline_sensors_24, "station"), // Ganti dengan drawable
+        BottomNavItem("History", R.drawable.outline_history_24, "history"), // Ganti dengan drawable
+        BottomNavItem("Profile", R.drawable.outline_person_24, "profile") // Ganti dengan drawable
     )
 
     // Pantau perubahan rute saat ini
@@ -90,7 +87,13 @@ fun BottomNavigationBar(
     ) {
         items.forEach { item ->
             NavigationBarItem(
-                icon = { Icon(item.icon, contentDescription = item.title) },
+                icon = {
+                    // Gunakan painterResource untuk memuat gambar dari drawable
+                    Icon(
+                        painter = painterResource(id = item.icon),
+                        contentDescription = item.title
+                    )
+                },
                 label = { Text(item.title) },
                 selected = currentRoute == item.route,
                 onClick = {
@@ -113,5 +116,5 @@ fun BottomNavigationBar(
     }
 }
 
-data class BottomNavItem(val title: String, val icon: ImageVector, val route: String)
+data class BottomNavItem(val title: String, val icon: Int, val route: String)
 

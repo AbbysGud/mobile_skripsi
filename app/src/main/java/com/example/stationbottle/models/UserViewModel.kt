@@ -6,7 +6,6 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
-import com.example.stationbottle.data.ApiService
 import com.example.stationbottle.data.LoginRequest
 import com.example.stationbottle.data.RegisterRequest
 import com.example.stationbottle.data.RetrofitClient
@@ -19,13 +18,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import retrofit2.HttpException
-import retrofit2.awaitResponse
-
 
 data class User(
     val token: String,
@@ -40,6 +34,23 @@ data class User(
     val breastfeeding_date: String? = null,
     val daily_goal: Double? = null,
     val rfid_tag: String? = null
+)
+
+data class UserData(
+    val id: Int,
+    val name: String,
+    val email: String,
+    val date_of_birth: String,
+    val weight: Double,
+    val height: Double,
+    val gender: String,
+    val pregnancy_date: String?,
+    val breastfeeding_date: String?,
+    val daily_goal: Double,
+    val rfid_tag: String,
+    val email_verified_at: String?,
+    val created_at: String,
+    val updated_at: String
 )
 
 class UserViewModel : ViewModel() {

@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +39,7 @@ import com.example.stationbottle.data.UpdateUserRequest
 import com.example.stationbottle.models.UserViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.pow
 
 @Composable
 fun ProfileScreen(navController: NavController) {
@@ -84,7 +83,7 @@ fun ProfileScreen(navController: NavController) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
-        Text(text = "Profile Screen", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(text = "Halaman Profil", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
         Image(
@@ -242,8 +241,8 @@ fun ProfileScreen(navController: NavController) {
                         if (dateOfBirth != null && dateOfBirth!!.isNotEmpty() && weight != null && weight != 0.0 && height != null && height != 0.0 && gender != null && gender!!.isNotEmpty()) {
                             dailyGoal = calculateDailyGoal(
                                 age = calculateAge(dateOfBirth!!),
-                                weight = weight,
-                                height = height,
+                                weight = weight!!,
+                                height = height!!,
                                 gender = gender!!,
                                 pregnancyDate = pregnancyDate.toString(),
                                 breastfeedingDate = breastfeedingDate.toString()
@@ -521,10 +520,87 @@ fun calculateBreastfeedingMonths(breastfeedingDate: String): Int {
     return diffInMonths.toInt()
 }
 
+fun calculateHollidaySegar(weight: Double): Double {
+    return when {
+        weight <= 10 -> {
+            weight * 100
+        }
+
+        weight <= 20 -> {
+            (10 * 100) + ((weight - 10) * 50)
+        }
+
+        else -> {
+            (10 * 100) + (10 * 50) + ((weight - 20) * 20)
+        }
+    }
+}
+
+fun calculateAdult(weight: Double, height: Double, gender: String, age: Int): Double {
+    var BMI = weight / (height / 100).pow(2.0)
+    var percentage = 0.0
+    if (gender == "male") {
+        if (BMI < 24.9) {
+            val weightPercentage = listOf(
+                40.0 to 0.017,
+                45.0 to 0.0175,
+                50.0 to 0.018,
+                55.0 to 0.0185,
+                60.0 to 0.019,
+                65.0 to 0.0195,
+                70.0 to 0.02
+            )
+
+            percentage = when {
+                weight <= weightPercentage.first().first -> weightPercentage.first().second
+                weight >= weightPercentage.last().first -> weightPercentage.last().second
+                else -> {
+                    val lower = weightPercentage.last { it.first <= weight }
+                    val upper = weightPercentage.first { it.first > weight }
+                    lower.second + (weight - lower.first) * (upper.second - lower.second) / (upper.first - lower.first)
+                }
+            }
+        } else {
+            percentage = 0.0255
+        }
+    } else if (gender == "female") {
+        percentage = 0.023
+    }
+
+
+    var watsonTBW = 0.0
+
+    if (gender == "male") {
+        watsonTBW = 2.447 - (0.09145 * age) + (0.1074 * height) + (0.3362 * weight)
+    } else if (gender == "female") {
+        watsonTBW = -2.097 + (0.1069 * height) + (0.2466 * weight)
+    }
+
+    println("BMI : $BMI")
+    println("percentage : $percentage")
+    println("watsonTBW : $watsonTBW")
+    println("w30 : ${weight * 30}")
+    println("tes : ${watsonTBW * percentage * 1000}")
+    return (weight * 30) + (watsonTBW * percentage * 1000)
+}
+
+fun calculateElderly(weight: Double, height: Double, gender: String, age: Int): Double {
+    var goals = 0.0
+
+    if (gender == "male") {
+        var watsonTBW = 2.447 - (0.09145 * age) + (0.1074 * height) + (0.3362 * weight)
+        goals = (weight * 30) + (watsonTBW * 0.003 * 1000)
+    } else if (gender == "female") {
+        goals = weight * 30
+    }
+
+    return goals
+}
+
 fun calculateDailyGoal(
     age: Int,
-    weight: Double?,
-    height: Double?,
+    weight: Double,
+    height: Double,
     gender: String,
     pregnancyDate: String = "",
     breastfeedingDate: String = ""
@@ -534,29 +610,48 @@ fun calculateDailyGoal(
     when (gender) {
         "male" -> {
             dailyGoal = when (age) {
-                in 10..12 -> 1800.0
-                in 13..15 -> 2000.0
-                in 16..18 -> 2200.0
-                in 19..29 -> 2500.0
-                in 30..49 -> 2600.0
-                in 50..64 -> 2600.0
-                in 65..80 -> 1900.0
+                in 0..18 -> {
+                    calculateHollidaySegar(weight)
+                }
+
+                in 19..64 -> {
+                    calculateAdult(weight, height, gender, age)
+                }
+
+                in 65..80 -> {
+                    calculateElderly(weight, height, gender, age)
+                }
+
+                in 81..200 -> {
+                    var watsonTBW = 2.447 - (0.09145 * age) + (0.1074 * height) + (0.3362 * weight)
+                    (weight * 30) - (watsonTBW * 0.003 * 1000)
+                }
                 else -> 2500.0
             }
         }
         "female" -> {
             dailyGoal = when (age) {
-                in 10..12 -> 1800.0
-                in 13..15 -> 2000.0
-                in 16..18 -> 2100.0
-                in 19..29 -> 2300.0
-                in 30..49 -> 2300.0
-                in 50..64 -> 2300.0
-                in 65..80 -> 1600.0
-                else -> 2300.0
+                in 0..18 -> {
+                    calculateHollidaySegar(weight)
+                }
+
+                in 19..64 -> {
+                    calculateAdult(weight, height, gender, age)
+                }
+
+                in 65..80 -> {
+                    calculateElderly(weight, height, gender, age)
+                }
+
+                in 81..200 -> {
+                    weight * 30
+                }
+                else -> 2500.0
             }
         }
     }
+
+    println("dailygoal : $dailyGoal")
 
     val pregnancyTrimester = calculatePregnancyTrimester(pregnancyDate)
 

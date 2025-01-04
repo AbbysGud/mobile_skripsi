@@ -1,8 +1,8 @@
 package com.example.stationbottle.data
 
-import com.example.stationbottle.models.LoginResponse
+import com.example.stationbottle.models.SensorData
+import com.example.stationbottle.models.UserData
 import okhttp3.ResponseBody
-import retrofit2.Call
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.Header
@@ -10,6 +10,7 @@ import retrofit2.http.POST
 import retrofit2.http.GET
 import retrofit2.http.PUT
 import retrofit2.http.Path
+import retrofit2.http.Query
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -37,28 +38,35 @@ interface ApiService {
         @Path("id") id: Int,
         @Body updateRequest: UpdateUserRequest
     ): UserResponse
+
+    @GET("sensor-data/date-range")
+    suspend fun getSensorData(
+        @Query("from_date") fromDate: String,
+        @Query("to_date") toDate: String,
+        @Query("rfid_tag") rfidTag: String
+    ): SensorDataResponse
 }
 
-data class LoginRequest(val email: String, val password: String)
-data class RegisterRequest(val email: String, val password: String, val password_confirmation: String)
-data class ForgotPasswordRequest(val email: String)
-data class ResetPasswordRequest(val email: String, val token: String, val password: String, val password_confirmation: String)
-data class UserResponse(val message: String, val data: FullUser)
-data class FullUser(
-    val id: Int,
-    val name: String? = null,
+data class LoginRequest(
     val email: String,
-    val date_of_birth: String? = null,
-    val weight: Double? = null,
-    val height: Double? = null,
-    val gender: String? = null,
-    val pregnancy_date: String? = null,
-    val breastfeeding_date: String? = null,
-    val daily_goal: Double? = null,
-    val rfid_tag: String? = null,
-    val email_verified_at: String? = null,
-    val created_at: String,
-    val updated_at: String
+    val password: String
+)
+
+data class RegisterRequest(
+    val email: String,
+    val password: String,
+    val password_confirmation: String
+)
+
+data class ForgotPasswordRequest(
+    val email: String
+)
+
+data class ResetPasswordRequest(
+    val email: String,
+    val token: String,
+    val password: String,
+    val password_confirmation: String
 )
 
 data class UpdateUserRequest(
@@ -72,23 +80,42 @@ data class UpdateUserRequest(
     val daily_goal: Double? = null
 )
 
-fun convertUtcToWIB(utcDate: String?): String? {
+data class LoginResponse(
+    val message: String,
+    val token: String,
+    val data: UserData
+)
+
+data class UserResponse(
+    val message: String,
+    val data: UserData
+)
+
+data class SensorDataResponse(
+    val message: String,
+    val from_date: String,
+    val to_date: String,
+    val input_rfid: String,
+    val data: List<SensorData>
+)
+
+fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false): String? {
     return utcDate?.let {
         try {
-            // Jika tanggal sudah memiliki penanda UTC ('Z'), maka proses konversi ke WIB
             if (it.contains("Z")) {
-                val utcFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()) // Format UTC
-                utcFormat.timeZone = TimeZone.getTimeZone("UTC") // Set timezone UTC
-                val date = utcFormat.parse(it) // Parse UTC date string
+                val utcFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
+                utcFormat.timeZone = TimeZone.getTimeZone("UTC")
+                val date = utcFormat.parse(it)
 
-                // Set TimeZone ke WIB (Asia/Jakarta)
-                val wibFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val wibFormat = if (includeTime) {
+                    SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                } else {
+                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                }
                 wibFormat.timeZone = TimeZone.getTimeZone("Asia/Jakarta")
 
-                // Format tanggal ke WIB
                 return wibFormat.format(date)
             } else {
-                // Jika tidak ada 'Z' pada tanggal, anggap itu sudah dalam format lokal dan return langsung
                 return it
             }
         } catch (e: Exception) {
@@ -96,3 +123,4 @@ fun convertUtcToWIB(utcDate: String?): String? {
         }
     }
 }
+

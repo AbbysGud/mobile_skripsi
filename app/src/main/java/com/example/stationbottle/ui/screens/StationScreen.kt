@@ -22,6 +22,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,19 +39,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
-import com.example.compose.AppTheme
+import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.R
+import com.example.stationbottle.ThemeViewModelFactory
 import com.example.stationbottle.data.MQTTClient
+import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
+import com.example.stationbottle.ui.theme.onPrimaryContainerLight
+import com.example.stationbottle.ui.theme.primaryLight
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -59,9 +69,13 @@ fun StationScreen(navController: NavController) {
     val userState = userViewModel.getUser(context).collectAsState(initial = null)
     val user = userState.value
 
+    val themeViewModel: ThemeViewModel = viewModel(factory = ThemeViewModelFactory(context))
+    val isDarkTheme = themeViewModel.isDarkMode.collectAsState(initial = false)
+
     val mqttClient = remember { MQTTClient("tcp://broker.hivemq.com:1883") }
     val topicSubscribe = "smartstation/weight"
     val topicPublish = "smartstation/mode"
+    val isConnected = remember { mutableStateOf(false) }
 
     val (weight, setWeight) = remember { mutableFloatStateOf(0.0f) }
     val (mode, setMode) = remember { mutableStateOf("") }
@@ -70,10 +84,6 @@ fun StationScreen(navController: NavController) {
 
     fun connectMqtt() {
         mqttClient.connect(context)
-    }
-
-    LaunchedEffect(Unit) {
-        connectMqtt()
         if(mqttClient.isConnected){
             mqttClient.subscribe(
                 context = context,
@@ -90,7 +100,13 @@ fun StationScreen(navController: NavController) {
                     }
                 }
             )
+            isConnected.value = true
         }
+    }
+
+    fun disconnectMqtt() {
+        mqttClient.disconnect(context)
+        isConnected.value = false
     }
 
     DisposableEffect(Unit) {
@@ -103,7 +119,7 @@ fun StationScreen(navController: NavController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 32.dp, top = 32.dp, end = 32.dp, bottom = 0.dp)
+            .padding(start = 16.dp, top = 32.dp, end = 16.dp, bottom = 0.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
@@ -116,209 +132,341 @@ fun StationScreen(navController: NavController) {
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        Box(
-            modifier = Modifier
-                .size(64.dp)
-                .border(
-                    width = 2.dp,
-                    color = if (mqttClient.isConnected  && message != "") Color.Green else Color.Red,
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (mqttClient.isConnected && message != "") "Online" else "Offline",
-                color = if (mqttClient.isConnected && message != "") Color.Green else Color.Red,
-                fontSize = 18.sp
-            )
-        }
+        Text(
+            text = "Sensor Status",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Start,
+            modifier = Modifier.fillMaxWidth()
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = "Sensor Status",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium
-        )
-
-        if (!mqttClient.isConnected) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = {
-                    connectMqtt()
-                },
-                modifier = Modifier.fillMaxWidth(0.6f)
-            ) {
-                Text(text = "Reconnect")
-            }
-        }
-
-        if (message == "") {
-            Text(
-                text = "Sensor Tidak Nyala",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Box(
+        Card(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .border(
-                    width = 1.dp,
-                    color = Color.Gray,
-                    shape = RoundedCornerShape(5.dp)
-                ),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(vertical = 4.dp, horizontal = 16.dp),
+            elevation = CardDefaults.elevatedCardElevation(4.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
         ) {
-            Column (
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
+                    .padding(24.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (mode == "WEIGH_MODE") {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .border(
+                            width = 2.dp,
+                            color =
+                                if (isConnected.value == true && mode != "")
+                                    MaterialTheme.colorScheme.primaryContainer
+                                else
+                                    MaterialTheme.colorScheme.error,
+                            shape = CircleShape
+                        )
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "Berat: \n$weight g",
-                        fontSize = 20.sp
+                        text =
+                            if (isConnected.value == true && mode != "")
+                                "Online"
+                            else
+                                "Offline",
+                        color =
+                        if (isConnected.value == true && mode != "")
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.error,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
                     )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isConnected.value == false) {
+                    Text(
+                        text = "Belum Terhubung ke Sensor",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                } else if (mode == "") {
+                    Text(
+                        text = "Sensor Tidak Nyala",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                } else {
+                    Text(
+                        text = "Terhubung ke Sensor",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        if (mqttClient.isConnected) {
+                            disconnectMqtt()
+                        } else {
+                            connectMqtt()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                ) {
+                    Text(
+                        text =
+                            if (mqttClient.isConnected)
+                                "Disconnect"
+                            else
+                                "Connect"
+                    )
+                }
+
+            }
+        }
+
+        if (isConnected.value == true) {
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Sensor Data",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp, horizontal = 16.dp),
+                elevation = CardDefaults.elevatedCardElevation(4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (mode == "WEIGH_MODE") {
+                        Text(
+                            text = "Berat:",
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Start,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = "$weight g",
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Light,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                val tareMessage = JSONObject().apply {
+                                    put("message", "TARE_SCALE")
+                                    put("user_id", user?.id ?: 0)
+                                }.toString()
+                                mqttClient.publish(context, topicPublish, tareMessage)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        ) {
+                            Text(text = "Tare")
+                        }
+                    } else if (mode == "RFID_MODE") {
+                        Text(
+                            text = "RFID:",
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Start,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = rfid,
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Light,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = {
-                            val tareMessage = JSONObject().apply {
-                                put("message", "TARE_SCALE")
+
+                    Text(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = "Pesan:",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Start
+                    )
+                    Text(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = message,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Light,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Sensor Mode",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable {
+                            val modeMessage = JSONObject().apply {
+                                put("message", "WEIGH_MODE")
                                 put("user_id", user?.id ?: 0)
                             }.toString()
-                            mqttClient.publish(context, topicPublish, tareMessage)
+                            mqttClient.publish(context, topicPublish, modeMessage)
                         },
-                        modifier = Modifier.fillMaxWidth(0.8f),
-                        shape = MaterialTheme.shapes.medium
+                    elevation = CardDefaults.elevatedCardElevation(4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor =
+                        if (mode == "WEIGH_MODE")
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.surfaceContainer,
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(text = "Tare")
+                        Image(
+                            painter = painterResource(
+                                if (mode == "WEIGH_MODE")
+                                    R.drawable.scale_white
+                                else
+                                    if (isDarkTheme.value)
+                                        R.drawable.scale_white
+                                    else
+                                        R.drawable.scale
+                            ),
+                            contentDescription = "SCALE ICON",
+                            modifier = Modifier.size(64.dp),
+                            contentScale = ContentScale.Fit
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "MODE\nTIMBANGAN",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center
+                        )
                     }
-                } else if (mode == "RFID_MODE") {
-                    Text(
-                        text = "RFID: \n$rfid",
-                        fontSize = 20.sp
-                    )
                 }
-            }
-        }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .border(
-                    width = 1.dp,
-                    color = Color.Gray,
-                    shape = RoundedCornerShape(5.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                modifier = Modifier.padding(16.dp),
-                text = "Pesan: \n$message",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Light
-            )
-        }
+                Spacer(modifier = Modifier.width(16.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Column (
-                modifier = Modifier.fillMaxHeight(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
+                Card(
                     modifier = Modifier
-                        .size(128.dp)
-                        .padding(8.dp)
-                        .background(Color.White)
-                        .clip(CircleShape)
-                        .border(
-                            width = 2.dp,
-                            color = if (mode == "RFID_MODE") Color.Green else Color.Black,
-                            shape = CircleShape
-                        )
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.rfid),
-                        contentDescription = "RFID ICON",
-                        modifier = Modifier
-                            .size(64.dp)
-                            .align(Alignment.Center)
-                            .clickable {
-                                val modeMessage = JSONObject().apply {
-                                    put("message", "RFID_MODE")
-                                    put("user_id", user?.id ?: 0)
-                                }.toString()
-                                mqttClient.publish(context, topicPublish, modeMessage)
-                            },
-                        contentScale = ContentScale.Fit
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable {
+                            val modeMessage = JSONObject().apply {
+                                put("message", "RFID_MODE")
+                                put("user_id", user?.id ?: 0)
+                            }.toString()
+                            mqttClient.publish(context, topicPublish, modeMessage)
+                        },
+                    elevation = CardDefaults.elevatedCardElevation(4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor =
+                        if (mode == "RFID_MODE")
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.surfaceContainer,
                     )
-                }
-
-                Text(
-                    text = "MODE RFID",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column (
-                modifier = Modifier.fillMaxHeight(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(128.dp)
-                        .padding(8.dp)
-                        .background(Color.White)
-                        .clip(CircleShape)
-                        .border(
-                            width = 2.dp,
-                            color = if (mode == "WEIGH_MODE") Color.Green else Color.Black,
-                            shape = CircleShape
-                        )
                 ) {
-                    Image(
-                        painter = painterResource(R.drawable.scale),
-                        contentDescription = "SCALE ICON",
+                    Column(
                         modifier = Modifier
-                            .size(64.dp)
-                            .align(Alignment.Center)
-                            .clickable {
-                                val modeMessage = JSONObject().apply {
-                                    put("message", "WEIGH_MODE")
-                                    put("user_id", user?.id ?: 0)
-                                }.toString()
-                                mqttClient.publish(context, topicPublish, modeMessage)
-                            },
-                        contentScale = ContentScale.Fit
-                    )
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 28.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Image(
+                            painter = painterResource(
+                                if (mode == "RFID_MODE")
+                                    R.drawable.rfid_white
+                                else
+                                    if (isDarkTheme.value)
+                                        R.drawable.rfid_white
+                                    else
+                                        R.drawable.rfid
+                            ),
+                            contentDescription = "RFID ICON",
+                            modifier = Modifier.size(64.dp),
+                            contentScale = ContentScale.Fit
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "MODE RFID",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
-
-                Text(
-                    text = "MODE TIMBANGAN",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
             }
-
         }
     }
 }

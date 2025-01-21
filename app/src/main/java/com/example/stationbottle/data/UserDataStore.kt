@@ -25,6 +25,22 @@ object UserDataStore {
     private val BREASTFEEDINGDATE_KEY = stringPreferencesKey("user_breastfeeding_date")
     private val DAILY_GOAL_KEY = doublePreferencesKey("user_daily_goal")
     private val RFID_TAG_KEY = stringPreferencesKey("user_rfid_tag")
+    private val DARK_MODE_KEY = booleanPreferencesKey("dark_mode")
+
+    // Fungsi untuk menyimpan status dark mode
+    suspend fun saveDarkMode(context: Context, isDarkMode: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[DARK_MODE_KEY] = isDarkMode
+        }
+    }
+
+    // Fungsi untuk membaca status dark mode
+    fun getDarkMode(context: Context): Flow<Boolean> {
+        return context.userDataStore.data
+            .map { preferences ->
+                preferences[DARK_MODE_KEY] ?: false // Default ke Light Mode
+            }
+    }
 
     // Fungsi untuk menyimpan token
     suspend fun saveUser(context: Context, user: User) {

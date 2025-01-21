@@ -1,5 +1,6 @@
 package com.example.stationbottle.navigation
 
+import android.content.res.Resources
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -20,9 +21,14 @@ import com.example.stationbottle.models.UserViewModel
 import com.example.stationbottle.ui.screens.*
 import com.example.stationbottle.R
 import com.example.stationbottle.data.MQTTClient
+import com.example.stationbottle.ui.theme.onPrimaryContainerLightMediumContrast
+import com.example.stationbottle.ui.theme.onPrimaryLight
+import com.example.stationbottle.ui.theme.onSecondaryLight
+import com.example.stationbottle.ui.theme.primaryLight
+import com.example.stationbottle.ui.theme.secondaryLight
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(onThemeChange: () -> Unit) {
     val navController = rememberNavController()
     val isLoggedIn = remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -59,7 +65,11 @@ fun AppNavigation() {
             composable("home") { HomeScreen(navController) }
             composable("station") { StationScreen(navController) }
             composable("history") { HistoryScreen(navController) }
-            composable("profile") { ProfileScreen(navController) }
+            composable("profile") {
+                ProfileScreen(
+                    navController, onThemeChange = onThemeChange
+                )
+            }
         }
     }
 }
@@ -67,15 +77,15 @@ fun AppNavigation() {
 @Composable
 fun BottomNavigationBar(
     navController: NavController,
-    backgroundColor: Color = MaterialTheme.colorScheme.primary,
-    contentColor: Color = MaterialTheme.colorScheme.onPrimary,
-    selectedContentColor: Color = MaterialTheme.colorScheme.secondary
+    backgroundColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    contentColor: Color = MaterialTheme.colorScheme.secondary,
+    selectedContentColor: Color = MaterialTheme.colorScheme.onPrimaryContainer
 ) {
     val items = listOf(
-        BottomNavItem("Home", R.drawable.outline_home_24, "home"), // Ganti dengan drawable
-        BottomNavItem("Stasiun", R.drawable.outline_sensors_24, "station"), // Ganti dengan drawable
-        BottomNavItem("History", R.drawable.outline_history_24, "history"), // Ganti dengan drawable
-        BottomNavItem("Profile", R.drawable.outline_person_24, "profile") // Ganti dengan drawable
+        BottomNavItem("Home", R.drawable.outline_home_24, "home"),
+        BottomNavItem("Stasiun", R.drawable.outline_sensors_24, "station"),
+        BottomNavItem("History", R.drawable.outline_history_24, "history"),
+        BottomNavItem("Profile", R.drawable.outline_person_24, "profile")
     )
 
     // Pantau perubahan rute saat ini
@@ -88,7 +98,6 @@ fun BottomNavigationBar(
         items.forEach { item ->
             NavigationBarItem(
                 icon = {
-                    // Gunakan painterResource untuk memuat gambar dari drawable
                     Icon(
                         painter = painterResource(id = item.icon),
                         contentDescription = item.title
@@ -107,9 +116,10 @@ fun BottomNavigationBar(
                 },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = selectedContentColor,
-                    selectedTextColor = MaterialTheme.colorScheme.onSecondary,
-                    unselectedIconColor = contentColor.copy(alpha = 0.7f),
-                    unselectedTextColor = contentColor.copy(alpha = 0.7f)
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = contentColor,
+                    unselectedTextColor = contentColor,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
                 )
             )
         }

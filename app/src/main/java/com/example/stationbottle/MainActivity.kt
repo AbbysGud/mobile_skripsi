@@ -1,26 +1,53 @@
 package com.example.stationbottle
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import com.example.compose.AppTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.stationbottle.models.ThemeViewModel
+import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.navigation.AppNavigation
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
-            AppTheme {
+
+            val themeViewModel: ThemeViewModel = viewModel(factory = ThemeViewModelFactory(applicationContext))
+
+            val isDarkTheme = themeViewModel.isDarkMode.collectAsState(initial = false)
+
+            // Gunakan nilai yang dihasilkan oleh collectAsState
+            AppTheme(darkTheme = isDarkTheme.value) {
                 Surface(
-                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation()
+                    AppNavigation(
+                        onThemeChange = { themeViewModel.toggleDarkMode() }
+                    )
                 }
             }
         }
+    }
+}
+
+class ThemeViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(ThemeViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return ThemeViewModel(context) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }

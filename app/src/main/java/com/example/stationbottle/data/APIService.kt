@@ -2,6 +2,7 @@ package com.example.stationbottle.data
 
 import com.example.stationbottle.models.SensorData
 import com.example.stationbottle.models.UserData
+import kotlinx.coroutines.delay
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
@@ -43,7 +44,13 @@ interface ApiService {
     suspend fun getSensorData(
         @Query("from_date") fromDate: String,
         @Query("to_date") toDate: String,
-        @Query("rfid_tag") rfidTag: String
+        @Query("user_id") userId: Int
+    ): SensorDataResponse
+
+    @GET("sensor-data/history")
+    suspend fun getSensorDataHistory(
+        @Query("user_id") userId: Int,
+        @Query("today_date") fromDate: String,
     ): SensorDataResponse
 }
 
@@ -95,11 +102,11 @@ data class SensorDataResponse(
     val message: String,
     val from_date: String,
     val to_date: String,
-    val input_rfid: String,
+    val user_id: String,
     val data: List<SensorData>
 )
 
-fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false): String? {
+fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false, timeOnly: Boolean = false): String? {
     return utcDate?.let {
         try {
             if (it.contains("Z")) {
@@ -107,10 +114,10 @@ fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false): String? {
                 utcFormat.timeZone = TimeZone.getTimeZone("UTC")
                 val date = utcFormat.parse(it)
 
-                val wibFormat = if (includeTime) {
-                    SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                } else {
-                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val wibFormat = when {
+                    timeOnly -> SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                    includeTime -> SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    else -> SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 }
                 wibFormat.timeZone = TimeZone.getTimeZone("Asia/Jakarta")
 
@@ -122,5 +129,27 @@ fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false): String? {
             null
         }
     }
+}
+
+suspend fun <T> retry(
+    times: Int = 3,
+    initialDelay: Long = 1000L,
+    maxDelay: Long = 5000L,
+    factor: Double = 2.0,
+    block: suspend () -> T
+): T {
+    var currentDelay = initialDelay
+    repeat(times - 1) {
+        try {
+            return block()
+        } catch (e: Exception) {
+            if (it == times - 1 || e.message?.contains("timeout", ignoreCase = true) != true) {
+                throw e
+            }
+        }
+        delay(currentDelay)
+        currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelay)
+    }
+    return block() // Last attempt
 }
 

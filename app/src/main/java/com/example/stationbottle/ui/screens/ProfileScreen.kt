@@ -1,9 +1,12 @@
 package com.example.stationbottle.ui.screens
 
+import android.app.DatePickerDialog
+import android.widget.DatePicker
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,19 +34,29 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
-import com.example.compose.AppTheme
 import com.example.stationbottle.R
+import com.example.stationbottle.ThemeViewModelFactory
 import com.example.stationbottle.data.UpdateUserRequest
+import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
+import com.example.stationbottle.ui.theme.AppTheme
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.pow
 
 @Composable
-fun ProfileScreen(navController: NavController) {
+fun ProfileScreen(
+    navController: NavController,
+    onThemeChange: () -> Unit
+) {
     val context = LocalContext.current
+
+    val themeViewModel: ThemeViewModel = viewModel(factory = ThemeViewModelFactory(context))
+    val isDarkTheme = themeViewModel.isDarkMode.collectAsState(initial = false)
+
     val userViewModel = UserViewModel()
     val userState = userViewModel.getUser(context).collectAsState(initial = null)
     val user = userState.value
@@ -91,11 +104,11 @@ fun ProfileScreen(navController: NavController) {
             contentDescription = "Default Profile Image",
             modifier = Modifier
                 .size(128.dp)
-                .padding(bottom = 16.dp)
                 .clip(CircleShape)
                 .background(Color.Gray),
             contentScale = ContentScale.Crop
         )
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (user != null) {
             Text(
@@ -121,12 +134,10 @@ fun ProfileScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
-                value = dateOfBirth?.ifEmpty { "" } ?: "",
-                onValueChange = { dateOfBirth = it },
-                label = { Text("Tanggal Lahir") },
-                placeholder = { Text("YYYY-MM-DD") },
-                modifier = Modifier.fillMaxWidth()
+            DatePickerOutlinedField(
+                label = "Tanggal Lahir",
+                date = dateOfBirth?.ifEmpty { "" } ?: "",
+                onDateSelected = { dateOfBirth = it }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -228,6 +239,22 @@ fun ProfileScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text(
+                    text = "Mode Gelap",
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = isDarkTheme.value,
+                    onCheckedChange = {
+                        onThemeChange()
+                    }
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(
@@ -262,7 +289,11 @@ fun ProfileScreen(navController: NavController) {
                         userViewModel.updateUser(navController, context, user.id, updateRequest, token.toString())
                     },
                     modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.medium
+                    shape = MaterialTheme.shapes.medium,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 ) {
                     Text("Update Profile")
                 }
@@ -284,6 +315,57 @@ fun ProfileScreen(navController: NavController) {
         }
     }
 }
+
+@Composable
+fun DatePickerOutlinedField(
+    label: String,
+    date: String,
+    onDateSelected: (String) -> Unit,
+    minDate: Long? = null
+) {
+    val context = LocalContext.current
+    val calendar = Calendar.getInstance()
+
+    val datePickerDialog = DatePickerDialog(
+        context,
+        { _: DatePicker, year: Int, month: Int, dayOfMonth: Int ->
+            val selectedDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(
+                Calendar.getInstance().apply {
+                    set(year, month, dayOfMonth)
+                }.time
+            )
+            onDateSelected(selectedDate)
+        },
+        calendar.get(Calendar.YEAR),
+        calendar.get(Calendar.MONTH),
+        calendar.get(Calendar.DAY_OF_MONTH)
+    )
+
+    minDate?.let { datePickerDialog.datePicker.minDate = it }
+
+    OutlinedTextField(
+        value = date,
+        onValueChange = {},
+        label = { Text(label) },
+        enabled = false,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { datePickerDialog.show() },
+        colors = TextFieldDefaults.colors(
+            disabledTextColor = MaterialTheme.colorScheme.onBackground,
+            disabledPrefixColor = MaterialTheme.colorScheme.onBackground,
+            disabledContainerColor = MaterialTheme.colorScheme.surface,
+            disabledIndicatorColor = MaterialTheme.colorScheme.outline,
+            disabledPlaceholderColor = MaterialTheme.colorScheme.onBackground,
+            disabledLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha =0.8f),
+            disabledSuffixColor = MaterialTheme.colorScheme.onBackground,
+            disabledLeadingIconColor = MaterialTheme.colorScheme.onBackground,
+            disabledSupportingTextColor = MaterialTheme.colorScheme.onBackground,
+            disabledTrailingIconColor = MaterialTheme.colorScheme.onBackground
+        )
+    )
+}
+
 
 @Composable
 fun TargetDailyGoalInfoDialog(
@@ -405,7 +487,14 @@ fun TargetDailyGoalInfoDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onDismissRequest) {
+            Button(
+                onClick = onDismissRequest,
+                shape = MaterialTheme.shapes.medium,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            ) {
                 Text("Tutup")
             }
         }
@@ -426,7 +515,7 @@ fun Table(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.primaryContainer)
-                .border(1.dp, MaterialTheme.colorScheme.primary)
+                .border(1.dp, MaterialTheme.colorScheme.primaryContainer)
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
@@ -440,7 +529,8 @@ fun Table(
                         .weight(1f)
                         .padding(horizontal = 4.dp),
                     fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }
@@ -449,7 +539,7 @@ fun Table(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.primary)
+                    .border(1.dp, MaterialTheme.colorScheme.primaryContainer)
                     .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
@@ -462,7 +552,8 @@ fun Table(
                             .fillMaxWidth()
                             .weight(1f)
                             .padding(horizontal = 4.dp),
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 }
             }
@@ -673,16 +764,5 @@ fun calculateDailyGoal(
         }
     }
 
-
     return dailyGoal
-}
-
-
-@Preview(showBackground = true)
-@Composable
-fun ProfileScreenPreview() {
-    AppTheme {
-        val navController = rememberNavController()
-        ProfileScreen(navController)
-    }
 }

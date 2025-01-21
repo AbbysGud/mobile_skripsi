@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
-import com.example.compose.AppTheme
+import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.R
 import com.example.stationbottle.data.LoginRequest
 import com.example.stationbottle.models.UserViewModel
@@ -146,7 +146,11 @@ fun LoginScreen(navController: NavController) {
                 )
             },
             modifier = Modifier.fillMaxWidth(0.8f),
-            shape = MaterialTheme.shapes.medium
+            shape = MaterialTheme.shapes.medium,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         ) {
             Text(text = "Login")
         }
@@ -170,7 +174,7 @@ fun LoginScreen(navController: NavController) {
                 append("Belum Punya Akun? ")
                 withStyle(
                     style = SpanStyle(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         fontWeight = FontWeight.Bold,
                         textDecoration = TextDecoration.Underline
                     )

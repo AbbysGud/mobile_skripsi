@@ -24,6 +24,8 @@ object UserDataStore {
     private val PREGNANCYDATE_KEY = stringPreferencesKey("user_pregnancy_date")
     private val BREASTFEEDINGDATE_KEY = stringPreferencesKey("user_breastfeeding_date")
     private val DAILY_GOAL_KEY = doublePreferencesKey("user_daily_goal")
+    private val WAKTU_MULAI_KEY = stringPreferencesKey("user_waktu_mulai")
+    private val WAKTU_SELESAI_KEY = stringPreferencesKey("user_waktu_selesai")
     private val RFID_TAG_KEY = stringPreferencesKey("user_rfid_tag")
     private val DARK_MODE_KEY = booleanPreferencesKey("dark_mode")
 
@@ -57,6 +59,8 @@ object UserDataStore {
             preferences[PREGNANCYDATE_KEY] = user.pregnancy_date ?: ""
             preferences[BREASTFEEDINGDATE_KEY] = user.breastfeeding_date ?: ""
             preferences[DAILY_GOAL_KEY] = user.daily_goal ?: 0.0
+            preferences[WAKTU_MULAI_KEY] = user.waktu_mulai ?: ""
+            preferences[WAKTU_SELESAI_KEY] = user.waktu_selesai ?: ""
             preferences[RFID_TAG_KEY] = user.rfid_tag ?: ""
         }
     }
@@ -82,6 +86,8 @@ object UserDataStore {
                 val pregnancy_date = preferences[PREGNANCYDATE_KEY] ?: ""
                 val breastfeeding_date = preferences[BREASTFEEDINGDATE_KEY] ?: ""
                 val daily_goal = preferences[DAILY_GOAL_KEY] ?: 0.0
+                val waktu_mulai = preferences[WAKTU_MULAI_KEY] ?: ""
+                val waktu_selesai = preferences[WAKTU_SELESAI_KEY] ?: ""
                 val rfid_tag = preferences[RFID_TAG_KEY] ?: ""
 
                 if (token != null && id != null && email != null) {
@@ -97,6 +103,8 @@ object UserDataStore {
                         pregnancy_date = pregnancy_date,
                         breastfeeding_date = breastfeeding_date,
                         daily_goal = daily_goal,
+                        waktu_mulai = waktu_mulai,
+                        waktu_selesai = waktu_selesai,
                         rfid_tag = rfid_tag
                     )
                 } else {
@@ -118,6 +126,8 @@ object UserDataStore {
             preferences.remove(PREGNANCYDATE_KEY)
             preferences.remove(BREASTFEEDINGDATE_KEY)
             preferences.remove(DAILY_GOAL_KEY)
+            preferences.remove(WAKTU_MULAI_KEY)
+            preferences.remove(WAKTU_SELESAI_KEY)
             preferences.remove(RFID_TAG_KEY)
         }
     }

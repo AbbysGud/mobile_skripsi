@@ -1,7 +1,5 @@
 package com.example.stationbottle.ui.screens
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -15,7 +13,6 @@ import androidx.compose.ui.unit.sp
 import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.models.UserViewModel
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +57,8 @@ fun HomeScreen(navController: NavController) {
 
     var name by remember { mutableStateOf<String?>(null) }
     var dailyGoal by remember { mutableStateOf<Double?>(null) }
+    var waktuMulai by remember { mutableStateOf<String?>(null) }
+    var waktuSelesai by remember { mutableStateOf<String?>(null) }
     var totalAktual by remember { mutableDoubleStateOf(0.0) }
     var totalPrediksi by remember { mutableDoubleStateOf(0.0) }
 
@@ -68,14 +67,16 @@ fun HomeScreen(navController: NavController) {
             userViewModel.getUserData(context, it.id, token.toString())
             name = it.name
             dailyGoal = it.daily_goal
+            waktuMulai = it.waktu_mulai
+            waktuSelesai = it.waktu_selesai
         }
     }
 
     LaunchedEffect(userId) {
         if (userId != null) {
             try {
-                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-//                val today = "2025-01-16"
+//                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                val today = "2025-01-16"
 
                 historyData = retry(times = 3) {
                     RetrofitClient.apiService.getSensorDataHistory(userId, today)
@@ -137,27 +138,35 @@ fun HomeScreen(navController: NavController) {
 
                 model.latihModel(tanggalArray, waktuArray, minumArray, maxIterasi = 10)
 
-                val lastTime = if (waktuArrayToday.isNotEmpty()) waktuArrayToday.last() else "06:00:00"
-                val (prediksiAir, prediksiWaktu) = model.prediksi(lastTime, "21:00:00", tanggalArray.last())!!
+                if (
+                    waktuMulai != null && waktuMulai != ""
+                    && waktuSelesai != null && waktuSelesai != ""
+                ) {
+                    val lastTime = if (waktuArrayToday.isNotEmpty()) waktuArrayToday.last() else waktuMulai
+                    val (prediksiAir, prediksiWaktu) = model.prediksi(
+                        lastTime.toString(),
+                        waktuSelesai.toString(),
+                        tanggalArray.last()
+                    )!!
 
-                totalPrediksi = prediksiAir.sum() + minumArrayToday.sum()
-                totalAktual = minumArrayToday.sum()
+                    totalPrediksi = prediksiAir.sum() + minumArrayToday.sum()
+                    totalAktual = minumArrayToday.sum()
 
-                prediksiAir.forEach { minumListPrediksi.add(it) }
+                    prediksiAir.forEach { minumListPrediksi.add(it) }
 
-                val formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
-                var currentTime = LocalTime.parse(lastTime, formatter)
+                    val formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+                    var currentTime = LocalTime.parse(lastTime, formatter)
 
-                prediksiWaktu.forEach { seconds ->
-                    currentTime = currentTime.plusSeconds(seconds.toLong())
+                    prediksiWaktu.forEach { seconds ->
+                        currentTime = currentTime.plusSeconds(seconds.toLong())
 
-                    waktuListPrediksi.add(currentTime.format(formatter))
+                        waktuListPrediksi.add(currentTime.format(formatter))
+                    }
+
+                    waktuListPrediksi.forEachIndexed { index, waktu ->
+                        prediksiList[waktu] = minumListPrediksi[index]
+                    }
                 }
-
-                waktuListPrediksi.forEachIndexed { index, waktu ->
-                    prediksiList[waktu] = minumListPrediksi[index]
-                }
-
             } catch (e: Exception) {
                 println("Error fetching data: ${e.message}")
             }
@@ -219,27 +228,61 @@ fun HomeScreen(navController: NavController) {
                     )
                 }
 
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
+                if (
+                    waktuMulai != null && waktuMulai != ""
+                    && waktuSelesai != null && waktuSelesai != ""
                 ) {
-                    Text(
-                        text = "Prediksi",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    CircularProgressIndicator(
-                        progress = { (totalPrediksi / dailyGoal!!).toFloat() },
-                        modifier = Modifier.size(100.dp),
-                        strokeWidth = 8.dp,
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "${"%.1f".format(totalPrediksi)} / ${"%.1f".format(dailyGoal!!)} mL",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Prediksi",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CircularProgressIndicator(
+                            progress = { (totalPrediksi / dailyGoal!!).toFloat() },
+                            modifier = Modifier.size(100.dp),
+                            strokeWidth = 8.dp,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${"%.1f".format(totalPrediksi)} / ${"%.1f".format(dailyGoal!!)} mL",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Prediksi",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier.size(100.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Isi Semua Data di Profil untuk Prediksi AI",
+                                fontSize = 14.sp,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
         }

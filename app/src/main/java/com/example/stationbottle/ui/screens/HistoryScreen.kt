@@ -130,6 +130,7 @@ fun HistoryScreen(navController: NavController) {
         Spacer(modifier = Modifier.height(8.dp))
 
         if (todayData.toString().isEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Tidak ada data untuk hari ini.",
                 fontSize = 14.sp,

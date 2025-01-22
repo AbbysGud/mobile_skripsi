@@ -33,6 +33,8 @@ data class User(
     val pregnancy_date: String? = null,
     val breastfeeding_date: String? = null,
     val daily_goal: Double? = null,
+    val waktu_mulai: String? = null,
+    val waktu_selesai: String? = null,
     val rfid_tag: String? = null
 )
 
@@ -47,6 +49,8 @@ data class UserData(
     val pregnancy_date: String?,
     val breastfeeding_date: String?,
     val daily_goal: Double,
+    val waktu_mulai: String? = null,
+    val waktu_selesai: String? = null,
     val rfid_tag: String,
     val email_verified_at: String?,
     val created_at: String,
@@ -94,6 +98,8 @@ class UserViewModel : ViewModel() {
                             pregnancy_date = convertUtcToWIB(loginResponse.data.pregnancy_date),
                             breastfeeding_date = convertUtcToWIB(loginResponse.data.breastfeeding_date),
                             daily_goal = loginResponse.data.daily_goal,
+                            waktu_mulai = loginResponse.data.waktu_mulai,
+                            waktu_selesai = loginResponse.data.waktu_selesai,
                             rfid_tag = loginResponse.data.rfid_tag
                         )
                         userViewModel.saveUser(context, user)
@@ -225,6 +231,8 @@ class UserViewModel : ViewModel() {
                     pregnancy_date = convertUtcToWIB(response.data.pregnancy_date),
                     breastfeeding_date = convertUtcToWIB(response.data.breastfeeding_date),
                     daily_goal = response.data.daily_goal,
+                    waktu_mulai = response.data.waktu_mulai,
+                    waktu_selesai = response.data.waktu_selesai,
                     rfid_tag = response.data.rfid_tag
                 )
                 saveUser(context, user)
@@ -256,6 +264,8 @@ class UserViewModel : ViewModel() {
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     null
                 )
                 val updatedUser = currentUser.copy(
@@ -267,6 +277,8 @@ class UserViewModel : ViewModel() {
                     pregnancy_date = response.data.pregnancy_date,
                     breastfeeding_date = response.data.breastfeeding_date,
                     daily_goal = response.data.daily_goal,
+                    waktu_mulai = response.data.waktu_mulai,
+                    waktu_selesai = response.data.waktu_selesai,
                     rfid_tag = response.data.rfid_tag
                 )
                 saveUser(context, updatedUser)

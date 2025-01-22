@@ -84,7 +84,9 @@ data class UpdateUserRequest(
     val gender: String? = null,
     val pregnancy_date: String? = null,
     val breastfeeding_date: String? = null,
-    val daily_goal: Double? = null
+    val daily_goal: Double? = null,
+    val waktu_mulai: String? = null,
+    val waktu_selesai: String? = null
 )
 
 data class LoginResponse(

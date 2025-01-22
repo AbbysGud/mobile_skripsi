@@ -1,12 +1,12 @@
 package com.example.stationbottle.ui.screens
 
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.widget.DatePicker
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,18 +31,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
 import com.example.stationbottle.R
 import com.example.stationbottle.ThemeViewModelFactory
 import com.example.stationbottle.data.UpdateUserRequest
 import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
-import com.example.stationbottle.ui.theme.AppTheme
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.pow
@@ -69,6 +66,8 @@ fun ProfileScreen(
     var height by remember { mutableStateOf<Double?>(null) }
     var gender by remember { mutableStateOf<String?>(null) }
     var dailyGoal by remember { mutableStateOf<Double?>(null) }
+    var waktu_mulai by remember { mutableStateOf<String?>(null) }
+    var waktu_selesai by remember { mutableStateOf<String?>(null) }
     var pregnancyDate by remember { mutableStateOf<String?>(null) }
     var breastfeedingDate by remember { mutableStateOf<String?>(null) }
     var showTargetInfoDialog by remember { mutableStateOf(false) }
@@ -83,6 +82,8 @@ fun ProfileScreen(
             height = it.height
             gender = it.gender
             dailyGoal = it.daily_goal
+            waktu_mulai = it.waktu_mulai
+            waktu_selesai = it.waktu_selesai
             pregnancyDate = it.pregnancy_date
             breastfeedingDate = it.breastfeeding_date
         }
@@ -196,22 +197,20 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             if (gender == "female") {
-                OutlinedTextField(
-                    value = pregnancyDate?.ifEmpty { "" } ?: "",
-                    onValueChange = { pregnancyDate = it },
-                    label = { Text("Tanggal Kehamilan (Opsional)") },
-                    placeholder = { Text("YYYY-MM-DD") },
-                    modifier = Modifier.fillMaxWidth()
+                DatePickerOutlinedField(
+                    label = "Tanggal Kehamilan (Opsional)",
+                    date = pregnancyDate?.ifEmpty { "" } ?: "",
+                    onDateSelected = { pregnancyDate = it },
+                    onClear = { pregnancyDate = "" }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                OutlinedTextField(
-                    value = breastfeedingDate?.ifEmpty { "" } ?: "",
-                    onValueChange = { breastfeedingDate = it },
-                    label = { Text("Tanggal Menyusui (Opsional)") },
-                    placeholder = { Text("YYYY-MM-DD") },
-                    modifier = Modifier.fillMaxWidth()
+                DatePickerOutlinedField(
+                    label = "Tanggal Menyusui (Opsional)",
+                    date = breastfeedingDate?.ifEmpty { "" } ?: "",
+                    onDateSelected = { breastfeedingDate = it },
+                    onClear = { breastfeedingDate = "" }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -236,6 +235,22 @@ fun ProfileScreen(
             if (showTargetInfoDialog) {
                 TargetDailyGoalInfoDialog(onDismissRequest = { showTargetInfoDialog = false })
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TimePickerOutlinedField(
+                label = "Waktu Mulai",
+                time = waktu_mulai?.ifEmpty { "" } ?: "",
+                onTimeSelected = { waktu_mulai = it }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TimePickerOutlinedField(
+                label = "Waktu Selesai",
+                time = waktu_selesai?.ifEmpty { "" } ?: "",
+                onTimeSelected = { waktu_selesai = it }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -283,10 +298,14 @@ fun ProfileScreen(
                             height = if (height == 0.0) null else height,
                             gender = gender,
                             daily_goal = if (dailyGoal == 0.0) null else dailyGoal,
+                            waktu_mulai = waktu_mulai,
+                            waktu_selesai = waktu_selesai,
                             pregnancy_date = pregnancyDate,
                             breastfeeding_date = breastfeedingDate
                         )
-                        userViewModel.updateUser(navController, context, user.id, updateRequest, token.toString())
+                        println(updateRequest)
+                        val updateResponse = userViewModel.updateUser(navController, context, user.id, updateRequest, token.toString())
+                        println(updateResponse)
                     },
                     modifier = Modifier.weight(1f),
                     shape = MaterialTheme.shapes.medium,
@@ -316,12 +335,14 @@ fun ProfileScreen(
     }
 }
 
+
 @Composable
 fun DatePickerOutlinedField(
     label: String,
     date: String,
     onDateSelected: (String) -> Unit,
-    minDate: Long? = null
+    minDate: Long? = null,
+    onClear: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val calendar = Calendar.getInstance()
@@ -351,6 +372,16 @@ fun DatePickerOutlinedField(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { datePickerDialog.show() },
+        trailingIcon = {
+            if (date.isNotEmpty() && onClear!=null) {
+                IconButton(onClick = { onClear.invoke() }) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.outline_clear_24),
+                        contentDescription = "Hapus Tanggal"
+                    )
+                }
+            }
+        },
         colors = TextFieldDefaults.colors(
             disabledTextColor = MaterialTheme.colorScheme.onBackground,
             disabledPrefixColor = MaterialTheme.colorScheme.onBackground,
@@ -366,6 +397,48 @@ fun DatePickerOutlinedField(
     )
 }
 
+@Composable
+fun TimePickerOutlinedField(
+    label: String,
+    time: String,
+    onTimeSelected: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val calendar = Calendar.getInstance()
+
+    val timePickerDialog = TimePickerDialog(
+        context,
+        { _, hourOfDay, minute ->
+            val selectedTime = String.format(Locale.ROOT, "%02d:%02d:00", hourOfDay, minute)
+            onTimeSelected(selectedTime)
+        },
+        calendar.get(Calendar.HOUR_OF_DAY),
+        calendar.get(Calendar.MINUTE),
+        true
+    )
+
+    OutlinedTextField(
+        value = time,
+        onValueChange = {},
+        label = { Text(label) },
+        enabled = false,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { timePickerDialog.show() },
+        colors = TextFieldDefaults.colors(
+            disabledTextColor = MaterialTheme.colorScheme.onBackground,
+            disabledPrefixColor = MaterialTheme.colorScheme.onBackground,
+            disabledContainerColor = MaterialTheme.colorScheme.surface,
+            disabledIndicatorColor = MaterialTheme.colorScheme.outline,
+            disabledPlaceholderColor = MaterialTheme.colorScheme.onBackground,
+            disabledLabelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+            disabledSuffixColor = MaterialTheme.colorScheme.onBackground,
+            disabledLeadingIconColor = MaterialTheme.colorScheme.onBackground,
+            disabledSupportingTextColor = MaterialTheme.colorScheme.onBackground,
+            disabledTrailingIconColor = MaterialTheme.colorScheme.onBackground
+        )
+    )
+}
 
 @Composable
 fun TargetDailyGoalInfoDialog(
@@ -560,7 +633,6 @@ fun Table(
         }
     }
 }
-
 
 
 fun calculateAge(dateOfBirth: String): Int {

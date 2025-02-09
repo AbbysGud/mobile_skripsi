@@ -1,7 +1,6 @@
 package com.example.stationbottle.data
 
 import android.content.Context
-import androidx.compose.runtime.collectAsState
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
@@ -10,7 +9,6 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
-// Membuat DataStore instance
 val Context.userDataStore by preferencesDataStore(name = "user_data_store")
 
 object UserDataStore {
@@ -39,19 +37,16 @@ object UserDataStore {
     private val TOTAL_AKTUAL_KEY = doublePreferencesKey("total_aktual")
     private val DATE_PREDIKSI_KEY = stringPreferencesKey("date_prediksi")
 
-
-    // Fungsi untuk menyimpan status dark mode
     suspend fun saveDarkMode(context: Context, isDarkMode: Boolean) {
         context.userDataStore.edit { preferences ->
             preferences[DARK_MODE_KEY] = isDarkMode
         }
     }
 
-    // Fungsi untuk membaca status dark mode
     fun getDarkMode(context: Context): Flow<Boolean> {
         return context.userDataStore.data
             .map { preferences ->
-                preferences[DARK_MODE_KEY] ?: false // Default ke Light Mode
+                preferences[DARK_MODE_KEY] ?: false
             }
     }
 

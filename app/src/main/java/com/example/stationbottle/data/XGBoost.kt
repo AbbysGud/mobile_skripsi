@@ -40,13 +40,11 @@ class XGBoost {
             formatter.format(it - prediksiWaktu).toDouble()
         }
 
-        val epsilon = 1e-6 // Ambang batas perubahan residual
+        val epsilon = 1e-6
         for (iterasi in 1..maxIterasi) {
-            // Bangun pohon untuk Air
             val rootAir = buatPohon(dataPoints.map { DataPoint(it.tanggal, it.minum, residualsAir[dataPoints.indexOf(it)], it.timeDifference) }, "Root Air")
             treesAir.add(rootAir)
 
-            // Bangun pohon untuk Waktu
             val rootWaktu = buatPohon(dataPoints.map { DataPoint(it.tanggal, it.minum, residualsWaktu[dataPoints.indexOf(it)], it.timeDifference) }, "Root Waktu")
             treesWaktu.add(rootWaktu)
 
@@ -177,20 +175,16 @@ class XGBoost {
         if (predicted == null) return EvaluationMetrics(Double.NaN, Double.NaN, Double.NaN, Double.NaN)
         val n = actual.size
 
-        // SMAPE
         val smape = actual.zip(predicted).sumOf { (a, p) ->
             val diff = abs(a - p)
             val denominator = (abs(a) + abs(p)) / 2
             if (denominator != 0.0) diff / denominator else 0.0
         } / n
 
-        // MAE
         val mae = actual.zip(predicted).sumOf { (a, p) -> abs(a - p) } / n
 
-        // RMSE
         val rmse = sqrt(actual.zip(predicted).sumOf { (a, p) -> (a - p).pow(2) } / n)
 
-        // R²
         val meanActual = actual.average()
         val ssTotal = actual.sumOf { (it - meanActual).pow(2) }
         val ssResidual = actual.zip(predicted).sumOf { (a, p) -> (a - p).pow(2) }

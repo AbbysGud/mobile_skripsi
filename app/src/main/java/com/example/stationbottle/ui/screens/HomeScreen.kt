@@ -30,7 +30,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.stationbottle.R
-import com.example.stationbottle.client.RetrofitClient
 import com.example.stationbottle.data.PredictionResult
 import com.example.stationbottle.worker.NotificationWorker
 import com.example.stationbottle.worker.calculatePrediction
@@ -65,12 +64,6 @@ fun HomeScreen(navController: NavController) {
     var statusHistory by remember { mutableStateOf<Boolean?>(null) }
 
     var hasilPred by remember { mutableStateOf<PredictionResult?>(null) }
-
-//            WebViewScreen { extractedCookie ->
-//                if (extractedCookie.isNotEmpty()) {
-//                    RetrofitClient.setCookie(extractedCookie)
-//                }
-//            }
 
     LaunchedEffect(user) {
         user?.let {

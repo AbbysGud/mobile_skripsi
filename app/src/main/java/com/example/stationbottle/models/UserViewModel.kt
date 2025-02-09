@@ -12,7 +12,6 @@ import com.example.stationbottle.data.RegisterRequest
 import com.example.stationbottle.data.UpdateUserRequest
 import com.example.stationbottle.data.User
 import com.example.stationbottle.data.UserDataStore
-import com.example.stationbottle.data.UserPrediksi
 import com.example.stationbottle.service.convertUtcToWIB
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -22,7 +21,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
 
 
 class UserViewModel : ViewModel() {
@@ -37,10 +35,6 @@ class UserViewModel : ViewModel() {
 
     fun getUser(context: Context): Flow<User?> {
         return UserDataStore.getUser(context)
-    }
-
-    fun getPrediksi(context: Context): Flow<UserPrediksi> {
-        return UserDataStore.getPrediksi(context)
     }
 
     fun loginUser(

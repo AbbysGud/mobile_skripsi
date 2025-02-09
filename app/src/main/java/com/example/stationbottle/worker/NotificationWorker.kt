@@ -18,16 +18,6 @@ class NotificationWorker(
     override suspend fun doWork(): Result {
         val user = getUser(applicationContext).first()
 
-//        ComposeView(applicationContext).apply {
-//            setContent {
-//              WebViewScreen { extractedCookie ->
-//                  if (extractedCookie.isNotEmpty()) {
-//                      RetrofitClient.setCookie(extractedCookie)
-//                  }
-//              }
-//            }
-//        }
-
         val hasilPred = calculatePrediction(
             context = applicationContext,
             userId = user?.id!!,
@@ -37,7 +27,6 @@ class NotificationWorker(
 
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // Buat saluran notifikasi
         val channelId = "hydration_notifications"
         val channelName = "Hydration Notifications"
         val importance = NotificationManager.IMPORTANCE_HIGH
@@ -64,14 +53,12 @@ class NotificationWorker(
         println("NOTIFIKASI AKTUAL: ${hasilPred.todayAktual}")
         println("NOTIFIKASI PREDIKSI: ${hasilPred.todayPrediksi}")
 
-        // Tentukan ikon berdasarkan status
         val iconRes = if (status) {
             android.R.drawable.ic_dialog_info
         } else {
             android.R.drawable.ic_dialog_alert
         }
 
-        // Bangun notifikasi
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(iconRes)
             .setContentTitle(title)
@@ -80,7 +67,6 @@ class NotificationWorker(
             .setAutoCancel(true)
             .build()
 
-        // Tampilkan notifikasi
         notificationManager.notify(1, notification)
 
         return Result.success()

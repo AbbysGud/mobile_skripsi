@@ -45,8 +45,7 @@ fun HistoryScreen(navController: NavController) {
     LaunchedEffect(userId) {
         if (userId != null) {
             try {
-//                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                val today = "2025-01-16"
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 val response = apiService.getSensorData(today, today, userId)
                 todayData = response
                 todayData?.data?.forEach { sensorData ->

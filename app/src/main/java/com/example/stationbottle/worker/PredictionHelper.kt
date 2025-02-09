@@ -1,8 +1,6 @@
 package com.example.stationbottle.worker
 
 import android.content.Context
-import com.example.stationbottle.client.RetrofitClient
-import com.example.stationbottle.data.UserPrediksi
 import com.example.stationbottle.data.XGBoost
 import com.example.stationbottle.data.fetchSensorDataHistory
 import java.time.LocalTime
@@ -13,9 +11,7 @@ import com.example.stationbottle.data.UserDataStore
 import com.example.stationbottle.data.UserDataStore.getPrediksi
 import com.example.stationbottle.data.fetchTodaySensorData
 import com.example.stationbottle.service.convertUtcToWIB
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

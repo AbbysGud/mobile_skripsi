@@ -1,6 +1,5 @@
 package com.example.stationbottle.ui.screens
 
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,14 +49,11 @@ import androidx.navigation.compose.rememberNavController
 import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.R
 import com.example.stationbottle.ThemeViewModelFactory
-import com.example.stationbottle.client.MQTTClient
 import com.example.stationbottle.client.RetrofitClient
 import com.example.stationbottle.data.ModeRequest
 import com.example.stationbottle.data.NGROKResponse
 import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
-import com.example.stationbottle.service.ApiService
-import com.example.stationbottle.worker.WebSocketManager
 import com.pusher.client.Pusher
 import com.pusher.client.PusherOptions
 import com.pusher.client.channel.PrivateChannelEventListener
@@ -66,16 +62,8 @@ import com.pusher.client.connection.ConnectionEventListener
 import com.pusher.client.connection.ConnectionStateChange
 import com.pusher.client.util.HttpAuthorizer
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
-import okio.ByteString
 import org.json.JSONException
 import org.json.JSONObject
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 @Composable
 fun StationScreen(navController: NavController) {
@@ -381,10 +369,6 @@ fun StationScreen(navController: NavController) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = {
-//                                val tareMessage = JSONObject().apply {
-//                                    put("message", "TARE_SCALE")
-//                                    put("user_id", user?.id ?: 0)
-//                                }.toString()
                                 val mode = ModeRequest(
                                     message = "TARE_SCALE",
                                     user_id = user?.id!!
@@ -399,21 +383,6 @@ fun StationScreen(navController: NavController) {
                                         println("Error sending mode: ${e.message}")
                                     }
                                 }
-
-
-//                                apiServiceNgrok?.let { service ->
-//                                    scope.launch {
-//                                        try {
-//                                            val response = service.sendMode(mode)
-//                                            println("Response: $response")
-//                                        } catch (e: Exception) {
-//                                            println("Error sending mode: ${e.message}")
-//                                        }
-//                                    }
-//                                } ?: println("apiServiceNgrok is null")
-
-
-//                                mqttClient.publish(context, topicPublish, tareMessage)
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.medium,
@@ -495,7 +464,6 @@ fun StationScreen(navController: NavController) {
                                     println("Error sending mode: ${e.message}")
                                 }
                             }
-//                            mqttClient.publish(context, topicPublish, modeMessage)
                         },
                     elevation = CardDefaults.elevatedCardElevation(4.dp),
                     colors = CardDefaults.cardColors(
@@ -558,7 +526,6 @@ fun StationScreen(navController: NavController) {
                                     println("Error sending mode: ${e.message}")
                                 }
                             }
-//                            mqttClient.publish(context, topicPublish, modeMessage)
                         },
                     elevation = CardDefaults.elevatedCardElevation(4.dp),
                     colors = CardDefaults.cardColors(

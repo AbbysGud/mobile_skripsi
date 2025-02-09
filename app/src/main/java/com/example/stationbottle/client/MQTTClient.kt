@@ -1,4 +1,4 @@
-package com.example.stationbottle.data
+package com.example.stationbottle.client
 
 import android.content.Context
 import android.widget.Toast

@@ -1,4 +1,4 @@
-package com.example.stationbottle.models
+package com.example.stationbottle.data
 
 data class SensorData(
     val id: Int,

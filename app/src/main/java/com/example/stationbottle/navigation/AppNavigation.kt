@@ -1,13 +1,15 @@
 package com.example.stationbottle.navigation
 
-import android.content.res.Resources
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -20,24 +22,20 @@ import androidx.navigation.compose.rememberNavController
 import com.example.stationbottle.models.UserViewModel
 import com.example.stationbottle.ui.screens.*
 import com.example.stationbottle.R
-import com.example.stationbottle.data.MQTTClient
-import com.example.stationbottle.ui.theme.onPrimaryContainerLightMediumContrast
-import com.example.stationbottle.ui.theme.onPrimaryLight
-import com.example.stationbottle.ui.theme.onSecondaryLight
-import com.example.stationbottle.ui.theme.primaryLight
-import com.example.stationbottle.ui.theme.secondaryLight
+import com.example.stationbottle.client.RetrofitClient
+import com.example.stationbottle.data.UserDataStore
 
 @Composable
 fun AppNavigation(onThemeChange: () -> Unit) {
     val navController = rememberNavController()
-    val isLoggedIn = remember { mutableStateOf(false) }
-    val context = LocalContext.current
     val userViewModel: UserViewModel = viewModel()
+    val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        userViewModel.getUser(context).collect { user ->
-            isLoggedIn.value = user != null
-        }
+    val user by userViewModel.getUser(context).collectAsState(initial = null)
+    val isLoggedIn = rememberSaveable { mutableStateOf(user != null) }
+
+    LaunchedEffect(user) {
+        isLoggedIn.value = user != null
     }
 
     Scaffold(

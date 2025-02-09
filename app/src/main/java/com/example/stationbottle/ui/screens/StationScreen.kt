@@ -1,6 +1,6 @@
 package com.example.stationbottle.ui.screens
 
-import android.widget.Space
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,9 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -54,13 +50,32 @@ import androidx.navigation.compose.rememberNavController
 import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.R
 import com.example.stationbottle.ThemeViewModelFactory
-import com.example.stationbottle.data.MQTTClient
+import com.example.stationbottle.client.MQTTClient
+import com.example.stationbottle.client.RetrofitClient
+import com.example.stationbottle.data.ModeRequest
+import com.example.stationbottle.data.NGROKResponse
 import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
-import com.example.stationbottle.ui.theme.onPrimaryContainerLight
-import com.example.stationbottle.ui.theme.primaryLight
+import com.example.stationbottle.service.ApiService
+import com.example.stationbottle.worker.WebSocketManager
+import com.pusher.client.Pusher
+import com.pusher.client.PusherOptions
+import com.pusher.client.channel.PrivateChannelEventListener
+import com.pusher.client.channel.PusherEvent
+import com.pusher.client.connection.ConnectionEventListener
+import com.pusher.client.connection.ConnectionStateChange
+import com.pusher.client.util.HttpAuthorizer
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okio.ByteString
 import org.json.JSONException
 import org.json.JSONObject
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 
 @Composable
 fun StationScreen(navController: NavController) {
@@ -68,51 +83,125 @@ fun StationScreen(navController: NavController) {
     val userViewModel = UserViewModel()
     val userState = userViewModel.getUser(context).collectAsState(initial = null)
     val user = userState.value
+    val scope = rememberCoroutineScope()
 
     val themeViewModel: ThemeViewModel = viewModel(factory = ThemeViewModelFactory(context))
     val isDarkTheme = themeViewModel.isDarkMode.collectAsState(initial = false)
 
-    val mqttClient = remember { MQTTClient("tcp://broker.hivemq.com:1883") }
-    val topicSubscribe = "smartstation/weight"
-    val topicPublish = "smartstation/mode"
-    val isConnected = remember { mutableStateOf(false) }
+    var response: NGROKResponse = NGROKResponse(
+        id = 1,
+        http_url = "http://localhost",
+        websocket_url = "http://localhost",
+        websocket_port = 6001,
+        updated_at = "",
+    )
+
+    var options = PusherOptions()
+    var pusher: Pusher = Pusher("stationbottlebe_pusher", options)
 
     val (weight, setWeight) = remember { mutableFloatStateOf(0.0f) }
     val (mode, setMode) = remember { mutableStateOf("") }
     val (rfid, setRFID) = remember { mutableStateOf("") }
     val (message, setMessage) = remember { mutableStateOf("") }
+    val isConnected = remember { mutableStateOf(false) }
 
-    fun connectMqtt() {
-        mqttClient.connect(context)
-        if(mqttClient.isConnected){
-            mqttClient.subscribe(
-                context = context,
-                topic = topicSubscribe,
-                callback = { message ->
-                    try {
-                        val data = JSONObject(message)
-                        setWeight(data.getDouble("weight").toFloat())
-                        setMode(data.getString("mode"))
-                        setRFID(data.getString("RFID"))
-                        setMessage(data.getString("message"))
-                    } catch (e: JSONException) {
-                        println("Error parsing message: ${e.message}")
-                    }
-                }
+    LaunchedEffect(Unit){
+        response = RetrofitClient.apiService.getNGROKUrl()
+        println("response $response")
+
+        RetrofitClient.setDynamicBaseUrl("${response.http_url}/api/")
+
+        val authUrl = "${response.http_url}/broadcasting/auth"
+        val authorizer = HttpAuthorizer(authUrl).apply {
+            setHeaders(
+                mapOf(
+                    "Accept" to "application/json",
+                    "X-Requested-With" to "XMLHttpRequest"
+                )
             )
-            isConnected.value = true
         }
-    }
 
-    fun disconnectMqtt() {
-        mqttClient.disconnect(context)
-        isConnected.value = false
+        options = PusherOptions().apply {
+            setCluster("mt1")
+            setHost("0.tcp.ap.ngrok.io")
+            setWsPort(response.websocket_port)
+            isUseTLS = false
+            setAuthorizer(authorizer)
+        }
+
+        pusher = Pusher("stationbottlebe_pusher", options)
+        println("Pusher instance created")
+
+        val channel = pusher.subscribePrivate("private-weight-channel")
+
+        channel.bind("client-WeightEvent", object : PrivateChannelEventListener {
+            override fun onEvent(event: PusherEvent) {
+                try {
+                    val jsonObject = JSONObject(event.data)
+
+                    val weight = if (jsonObject.has("weight") && !jsonObject.isNull("weight")) {
+                        jsonObject.getDouble("weight").toFloat()
+                    } else {
+                        0.0f
+                    }
+                    setWeight(weight)
+
+                    val mode = if (jsonObject.has("mode") && !jsonObject.isNull("mode")) {
+                        jsonObject.getString("mode")
+                    } else {
+                        "WEIGH_MODE"
+                    }
+                    setMode(mode)
+
+                    val rfid = if (jsonObject.has("rfid") && !jsonObject.isNull("rfid")) {
+                        jsonObject.getString("rfid")
+                    } else {
+                        ""
+                    }
+                    setRFID(rfid)
+
+                    val message = if (jsonObject.has("message") && !jsonObject.isNull("message")) {
+                        jsonObject.getString("message")
+                    } else {
+                        ""
+                    }
+                    setMessage(message)
+
+                } catch (e: JSONException) {
+                    setWeight(0.0f)
+                    setMode("")
+                    setRFID("")
+                    setMessage("Error parsing data")
+                    println("Error parsing JSON: ${e.message}")
+                }
+            }
+
+            override fun onSubscriptionSucceeded(channelName: String) {
+                println("Subscription succeeded to $channelName")
+            }
+
+            override fun onAuthenticationFailure(message: String, e: Exception) {
+                println("Authentication failed: $message, Exception: $e")
+            }
+        })
+
+        pusher.connect(object : ConnectionEventListener {
+            override fun onConnectionStateChange(change: ConnectionStateChange) {
+                println("State changed from ${change.previousState} to ${change.currentState}")
+            }
+
+            override fun onError(message: String?, code: String?, e: Exception?) {
+                println("Error: $message, Code: $code, Exception: $e")
+            }
+        })
+
+        isConnected.value = true
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            mqttClient.disconnect(context)
-            println("MQTT disconnected on page exit")
+            pusher.disconnect()
+            println("Disconnect from pusher")
         }
     }
 
@@ -164,10 +253,10 @@ fun StationScreen(navController: NavController) {
                         .border(
                             width = 2.dp,
                             color =
-                                if (isConnected.value == true && mode != "")
-                                    MaterialTheme.colorScheme.primaryContainer
-                                else
-                                    MaterialTheme.colorScheme.error,
+                            if (isConnected.value == true && mode != "")
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.error,
                             shape = CircleShape
                         )
                         .background(
@@ -218,10 +307,12 @@ fun StationScreen(navController: NavController) {
 
                 Button(
                     onClick = {
-                        if (mqttClient.isConnected) {
-                            disconnectMqtt()
+                        if (isConnected.value == true) {
+                            pusher.disconnect()
+                            isConnected.value = false
                         } else {
-                            connectMqtt()
+                            pusher.connect()
+                            isConnected.value = true
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -233,7 +324,7 @@ fun StationScreen(navController: NavController) {
                 ) {
                     Text(
                         text =
-                            if (mqttClient.isConnected)
+                            if (isConnected.value == true)
                                 "Disconnect"
                             else
                                 "Connect"
@@ -290,11 +381,39 @@ fun StationScreen(navController: NavController) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = {
-                                val tareMessage = JSONObject().apply {
-                                    put("message", "TARE_SCALE")
-                                    put("user_id", user?.id ?: 0)
-                                }.toString()
-                                mqttClient.publish(context, topicPublish, tareMessage)
+//                                val tareMessage = JSONObject().apply {
+//                                    put("message", "TARE_SCALE")
+//                                    put("user_id", user?.id ?: 0)
+//                                }.toString()
+                                val mode = ModeRequest(
+                                    message = "TARE_SCALE",
+                                    user_id = user?.id!!
+                                )
+                                println(mode)
+
+                                scope.launch {
+                                    try {
+                                        val response = RetrofitClient.dynamicApiService.sendMode(mode)
+                                        println("Response: $response")
+                                    } catch (e: Exception) {
+                                        println("Error sending mode: ${e.message}")
+                                    }
+                                }
+
+
+//                                apiServiceNgrok?.let { service ->
+//                                    scope.launch {
+//                                        try {
+//                                            val response = service.sendMode(mode)
+//                                            println("Response: $response")
+//                                        } catch (e: Exception) {
+//                                            println("Error sending mode: ${e.message}")
+//                                        }
+//                                    }
+//                                } ?: println("apiServiceNgrok is null")
+
+
+//                                mqttClient.publish(context, topicPublish, tareMessage)
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.medium,
@@ -364,11 +483,19 @@ fun StationScreen(navController: NavController) {
                         .weight(1f)
                         .fillMaxHeight()
                         .clickable {
-                            val modeMessage = JSONObject().apply {
-                                put("message", "WEIGH_MODE")
-                                put("user_id", user?.id ?: 0)
-                            }.toString()
-                            mqttClient.publish(context, topicPublish, modeMessage)
+                            val mode = ModeRequest(
+                                message = "WEIGH_MODE",
+                                user_id = user?.id!!
+                            )
+                            scope.launch {
+                                try {
+                                    val response = RetrofitClient.dynamicApiService.sendMode(mode)
+                                    println("Response: $response")
+                                } catch (e: Exception) {
+                                    println("Error sending mode: ${e.message}")
+                                }
+                            }
+//                            mqttClient.publish(context, topicPublish, modeMessage)
                         },
                     elevation = CardDefaults.elevatedCardElevation(4.dp),
                     colors = CardDefaults.cardColors(
@@ -419,11 +546,19 @@ fun StationScreen(navController: NavController) {
                         .weight(1f)
                         .fillMaxHeight()
                         .clickable {
-                            val modeMessage = JSONObject().apply {
-                                put("message", "RFID_MODE")
-                                put("user_id", user?.id ?: 0)
-                            }.toString()
-                            mqttClient.publish(context, topicPublish, modeMessage)
+                            val mode = ModeRequest(
+                                message = "RFID_MODE",
+                                user_id = user?.id!!
+                            )
+                            scope.launch {
+                                try {
+                                    val response = RetrofitClient.dynamicApiService.sendMode(mode)
+                                    println("Response: $response")
+                                } catch (e: Exception) {
+                                    println("Error sending mode: ${e.message}")
+                                }
+                            }
+//                            mqttClient.publish(context, topicPublish, modeMessage)
                         },
                     elevation = CardDefaults.elevatedCardElevation(4.dp),
                     colors = CardDefaults.cardColors(

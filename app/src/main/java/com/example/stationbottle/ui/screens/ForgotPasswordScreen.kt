@@ -12,8 +12,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.stationbottle.client.RetrofitClient.apiService
 import com.example.stationbottle.data.ForgotPasswordRequest
-import com.example.stationbottle.data.RetrofitClient
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.launch
@@ -60,7 +60,7 @@ fun ForgotPasswordScreen(navController: NavController) {
                     scope.launch {
                         try {
                             val forgotPasswordRequest = ForgotPasswordRequest(emailForgot)
-                            val response = RetrofitClient.apiService.forgotPassword(forgotPasswordRequest)
+                            val response = apiService.forgotPassword(forgotPasswordRequest)
                             if (response.isSuccessful) {
                                 dialogMessage = "Token reset telah dikirim ke email Anda."
                                 Toast.makeText(context, "Token reset telah dikirim ke email Anda.", Toast.LENGTH_SHORT).show()

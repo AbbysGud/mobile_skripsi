@@ -1,5 +1,11 @@
 package com.example.stationbottle.ui.screens
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -18,21 +24,23 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.example.stationbottle.R
-import com.example.stationbottle.data.RetrofitClient
-import com.example.stationbottle.data.SensorDataResponse
-import com.example.stationbottle.data.XGBoost
-import com.example.stationbottle.data.convertUtcToWIB
-import com.example.stationbottle.data.retry
+import com.example.stationbottle.client.RetrofitClient
+import com.example.stationbottle.data.PredictionResult
+import com.example.stationbottle.worker.NotificationWorker
+import com.example.stationbottle.worker.calculatePrediction
 import java.text.SimpleDateFormat
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import kotlin.collections.set
+import java.util.concurrent.TimeUnit
 
+@SuppressLint("MutableCollectionMutableState")
 @Composable
 fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
@@ -42,25 +50,27 @@ fun HomeScreen(navController: NavController) {
     val userId = user?.id
     val token = user?.token
 
-    var todayData by remember { mutableStateOf<SensorDataResponse?>(null) }
-    var todayList = remember { linkedMapOf<String, Double>() }
-    var prediksiList = remember { linkedMapOf<String, Double>() }
-    var historyData by remember { mutableStateOf<SensorDataResponse?>(null) }
-    var historyList = remember { linkedMapOf<String, Double>() }
-    var tanggalList = remember { mutableListOf<String>() }
-    var waktuList = remember { mutableListOf<String>() }
-    var minumList = remember { mutableListOf<Double>() }
-    var waktuListToday = remember { mutableListOf<String>() }
-    var minumListToday = remember { mutableListOf<Double>() }
-    var waktuListPrediksi = remember { mutableListOf<String>() }
-    var minumListPrediksi = remember { mutableListOf<Double>() }
+    var todayList by remember { mutableStateOf(linkedMapOf<String, Double>()) }
+    var prediksiList by remember { mutableStateOf(linkedMapOf<String, Double>()) }
+
+    var selisihList by remember { mutableStateOf(mutableListOf<Long?>()) }
 
     var name by remember { mutableStateOf<String?>(null) }
     var dailyGoal by remember { mutableStateOf<Double?>(null) }
     var waktuMulai by remember { mutableStateOf<String?>(null) }
     var waktuSelesai by remember { mutableStateOf<String?>(null) }
+
     var totalAktual by remember { mutableDoubleStateOf(0.0) }
     var totalPrediksi by remember { mutableDoubleStateOf(0.0) }
+    var statusHistory by remember { mutableStateOf<Boolean?>(null) }
+
+    var hasilPred by remember { mutableStateOf<PredictionResult?>(null) }
+
+//            WebViewScreen { extractedCookie ->
+//                if (extractedCookie.isNotEmpty()) {
+//                    RetrofitClient.setCookie(extractedCookie)
+//                }
+//            }
 
     LaunchedEffect(user) {
         user?.let {
@@ -69,106 +79,82 @@ fun HomeScreen(navController: NavController) {
             dailyGoal = it.daily_goal
             waktuMulai = it.waktu_mulai
             waktuSelesai = it.waktu_selesai
+
+            val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            val startTime = dateFormat.parse(waktuMulai!!)
+            val endTime = dateFormat.parse(waktuSelesai!!)
+            val waktuSekarang = dateFormat.format(Date())
+
+            val calendar = Calendar.getInstance()
+            calendar.time = startTime!!
+
+            val timeList = mutableListOf<String>()
+
+            while (calendar.time.before(endTime)) {
+                val formattedTime = dateFormat.format(calendar.time)
+                timeList.add(formattedTime)
+
+                calendar.add(Calendar.SECOND, 3600)
+            }
+
+            timeList.forEach { time ->
+                selisihList.add(dateFormat.parse(time)!!.time - dateFormat.parse(waktuSekarang)!!.time)
+            }
         }
     }
 
     LaunchedEffect(userId) {
         if (userId != null) {
-            try {
-//                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                val today = "2025-01-16"
+            hasilPred = calculatePrediction(
+                context = context,
+                userId = userId,
+                waktuMulai = waktuMulai!!,
+                waktuSelesai = waktuSelesai!!,
+            )
+            totalAktual = hasilPred!!.todayAktual
+            totalPrediksi = hasilPred!!.todayPrediksi
+            todayList = hasilPred!!.todayList
+            prediksiList = hasilPred!!.prediksiList
+            statusHistory = hasilPred!!.statusHistory
+        }
+    }
 
-                historyData = retry(times = 3) {
-                    RetrofitClient.apiService.getSensorDataHistory(userId, today)
+    val onPermissionGranted = {
+        val workManager = WorkManager.getInstance(context)
+
+        workManager.cancelAllWorkByTag("hydration_notifications")
+
+        selisihList.forEach { selisih ->
+            if (selisih != null && selisih > 0) {
+                val initialWorkRequest = OneTimeWorkRequestBuilder<NotificationWorker>()
+                    .setInitialDelay(selisih, TimeUnit.MILLISECONDS)
+                    .addTag("hydration_notifications")
+                    .build()
+
+                WorkManager.getInstance(context).enqueue(initialWorkRequest)
+            }
+        }
+    }
+
+    if (hasilPred?.isNotif == true) {
+        val requestPermissionLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+            onResult = { isGranted ->
+                if (isGranted) {
+                    onPermissionGranted()
+                } else {
+                    println("Izin notifikasi ditolak.")
                 }
+            }
+        )
 
-                historyData?.data?.forEach { sensorData ->
-                    if (sensorData.previous_weight != 0.0 && sensorData.previous_weight > sensorData.weight) {
-                        val tanggal = convertUtcToWIB(sensorData.created_at, includeTime = true).toString()
-                        tanggalList.add(tanggal)
+        LaunchedEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
 
-                        val waktu = convertUtcToWIB(sensorData.created_at, timeOnly = true).toString()
-                        waktuList.add(waktu)
-
-                        val minum = kotlin.math.abs(sensorData.previous_weight - sensorData.weight)
-                        minumList.add(minum)
-
-                        historyList[convertUtcToWIB(sensorData.created_at, timeOnly = true).toString()] =
-                            sensorData.previous_weight - sensorData.weight
-                    }
-                }
-
-                try {
-                    todayData = retry(times = 3) {
-                        RetrofitClient.apiService.getSensorData(today, today, userId)
-                    }
-
-                    todayData?.data?.forEach { sensorData ->
-                        if (sensorData.previous_weight != 0.0 && sensorData.previous_weight > sensorData.weight) {
-                            val tanggal = convertUtcToWIB(sensorData.created_at, includeTime = true).toString()
-                            tanggalList.add(tanggal)
-
-                            val waktu = convertUtcToWIB(sensorData.created_at, timeOnly = true).toString()
-                            waktuList.add(waktu)
-                            waktuListToday.add(waktu)
-
-                            val minum = kotlin.math.abs(sensorData.previous_weight - sensorData.weight)
-                            minumList.add(minum)
-                            minumListToday.add(minum)
-
-                            todayList[convertUtcToWIB(sensorData.created_at, timeOnly = true).toString()] =
-                                sensorData.previous_weight - sensorData.weight
-                        }
-                    }
-                } catch (e: Exception) {
-                    if (e.message?.contains("404") == true) {
-                        println("Data hari ini tidak ditemukan, hanya menggunakan data historis.")
-                    } else {
-                        throw e
-                    }
-                }
-
-                val tanggalArray = tanggalList.toTypedArray()
-                val waktuArray = waktuList.toTypedArray()
-                val minumArray = minumList.toDoubleArray()
-                val waktuArrayToday = waktuListToday.toTypedArray()
-                val minumArrayToday = minumListToday.toDoubleArray()
-
-                val model = XGBoost()
-
-                model.latihModel(tanggalArray, waktuArray, minumArray, maxIterasi = 10)
-
-                if (
-                    waktuMulai != null && waktuMulai != ""
-                    && waktuSelesai != null && waktuSelesai != ""
-                ) {
-                    val lastTime = if (waktuArrayToday.isNotEmpty()) waktuArrayToday.last() else waktuMulai
-                    val (prediksiAir, prediksiWaktu) = model.prediksi(
-                        lastTime.toString(),
-                        waktuSelesai.toString(),
-                        tanggalArray.last()
-                    )!!
-
-                    totalPrediksi = prediksiAir.sum() + minumArrayToday.sum()
-                    totalAktual = minumArrayToday.sum()
-
-                    prediksiAir.forEach { minumListPrediksi.add(it) }
-
-                    val formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
-                    var currentTime = LocalTime.parse(lastTime, formatter)
-
-                    prediksiWaktu.forEach { seconds ->
-                        currentTime = currentTime.plusSeconds(seconds.toLong())
-
-                        waktuListPrediksi.add(currentTime.format(formatter))
-                    }
-
-                    waktuListPrediksi.forEachIndexed { index, waktu ->
-                        prediksiList[waktu] = minumListPrediksi[index]
-                    }
-                }
-            } catch (e: Exception) {
-                println("Error fetching data: ${e.message}")
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                onPermissionGranted()
             }
         }
     }
@@ -228,19 +214,47 @@ fun HomeScreen(navController: NavController) {
                     )
                 }
 
-                if (
-                    waktuMulai != null && waktuMulai != ""
-                    && waktuSelesai != null && waktuSelesai != ""
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    Text(
+                        text = "Prediksi",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    var textError =
+                        if(waktuMulai == null || waktuMulai == "" ||
+                            waktuSelesai == null || waktuSelesai == "") {
+                            "Isi Semua Data di Profil untuk Prediksi AI"
+                        } else if (statusHistory == false) {
+                            "Data Historis Tidak Tersedia"
+                        } else {
+                            "Error"
+                        }
+
+                    if(waktuMulai == null || waktuMulai == "" ||
+                        waktuSelesai == null || waktuSelesai == ""
+                        || statusHistory == false){
+                        Box(
+                            modifier = Modifier.size(100.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = textError,
+                                fontSize = 14.sp,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Prediksi",
-                            fontSize = 16.sp,
+                            text = "",
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                    } else {
                         CircularProgressIndicator(
                             progress = { (totalPrediksi / dailyGoal!!).toFloat() },
                             modifier = Modifier.size(100.dp),
@@ -250,35 +264,6 @@ fun HomeScreen(navController: NavController) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "${"%.1f".format(totalPrediksi)} / ${"%.1f".format(dailyGoal!!)} mL",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                } else {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "Prediksi",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier.size(100.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Isi Semua Data di Profil untuk Prediksi AI",
-                                fontSize = 14.sp,
-                                color = Color.Gray,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
@@ -348,7 +333,7 @@ fun HomeScreen(navController: NavController) {
                                 val inputFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                                 val outputFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
                                 val waktuBiasa = inputFormat.parse(waktu)
-                                val waktuFormat = outputFormat.format(waktuBiasa)
+                                val waktuFormat = outputFormat.format(waktuBiasa!!)
 
                                 Text(
                                     text = waktuFormat,
@@ -440,7 +425,7 @@ fun HomeScreen(navController: NavController) {
                                 val inputFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                                 val outputFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
                                 val waktuBiasa = inputFormat.parse(waktu)
-                                val waktuFormat = outputFormat.format(waktuBiasa)
+                                val waktuFormat = outputFormat.format(waktuBiasa!!)
 
                                 Text(
                                     text = waktuFormat,

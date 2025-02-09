@@ -17,23 +17,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
-import co.yml.charts.axis.AxisData
-import co.yml.charts.axis.DataCategoryOptions
-import co.yml.charts.axis.Gravity
-import co.yml.charts.common.model.Point
-import co.yml.charts.ui.barchart.BarChart
-import co.yml.charts.ui.barchart.models.BarChartData
-import co.yml.charts.ui.barchart.models.BarData
-import co.yml.charts.ui.barchart.models.BarStyle
-import com.example.stationbottle.data.RetrofitClient
+import com.example.stationbottle.client.RetrofitClient.apiService
 import com.example.stationbottle.data.SensorDataResponse
-import com.example.stationbottle.data.convertUtcToWIB
+import com.example.stationbottle.service.convertUtcToWIB
 import com.example.stationbottle.models.UserViewModel
-import org.json.JSONObject
+import com.example.stationbottle.ui.screens.component.BarchartWithSolidBars
+import com.example.stationbottle.ui.screens.component.DatePickerOutlinedField
 import java.text.SimpleDateFormat
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlin.math.abs
 
 @Composable
 fun HistoryScreen(navController: NavController) {
@@ -55,12 +47,12 @@ fun HistoryScreen(navController: NavController) {
             try {
 //                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 val today = "2025-01-16"
-                val response = RetrofitClient.apiService.getSensorData(today, today, userId)
+                val response = apiService.getSensorData(today, today, userId)
                 todayData = response
                 todayData?.data?.forEach { sensorData ->
                     if (sensorData.previous_weight != 0.0  && sensorData.previous_weight > sensorData.weight) {
                         val waktu = convertUtcToWIB(sensorData.created_at, timeOnly = true).toString()
-                        val minum = kotlin.math.abs(sensorData.previous_weight - sensorData.weight)
+                        val minum = abs(sensorData.previous_weight - sensorData.weight)
 
                         todayList[waktu] = minum
                     }
@@ -74,7 +66,7 @@ fun HistoryScreen(navController: NavController) {
     LaunchedEffect(fromDate, toDate) {
         if (fromDate != "" && toDate != "") {
             try {
-                val response = RetrofitClient.apiService.getSensorData(
+                val response = apiService.getSensorData(
                     fromDate = fromDate,
                     toDate = toDate,
                     userId = userId!!
@@ -87,7 +79,7 @@ fun HistoryScreen(navController: NavController) {
                 groupedData.forEach { (date, dataList) ->
                     val totalForDay = dataList.sumOf {
                         if (it.previous_weight != 0.0 && it.previous_weight > it.weight) {
-                            kotlin.math.abs(it.previous_weight - it.weight)
+                            abs(it.previous_weight - it.weight)
                         } else {
                             0.0
                         }
@@ -243,86 +235,6 @@ fun HistoryScreen(navController: NavController) {
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
-}
-
-@Composable
-private fun BarchartWithSolidBars(todayList: Map<String, Double>) {
-    val barData = getCustomBarChartData(todayList, DataCategoryOptions())
-    val maxRange = todayList.values.maxOrNull()?.toInt() ?: 50
-    val yStepSize = 10
-
-    val xAxisData = AxisData.Builder()
-        .axisLineColor(MaterialTheme.colorScheme.onSurface)
-        .axisLabelColor(MaterialTheme.colorScheme.onSurface)
-        .backgroundColor(MaterialTheme.colorScheme.surfaceContainer)
-        .axisStepSize(30.dp)
-        .steps(barData.size - 1)
-        .bottomPadding(40.dp)
-        .axisLabelAngle(20f)
-        .startDrawPadding(48.dp)
-        .shouldDrawAxisLineTillEnd(true)
-        .labelData { index -> barData[index].label }
-        .axisLabelDescription { "Waktu Minum" }
-        .axisPosition(Gravity.BOTTOM)
-        .build()
-
-    val yAxisData = AxisData.Builder()
-        .axisLineColor(MaterialTheme.colorScheme.onSurface)
-        .axisLabelColor(MaterialTheme.colorScheme.onSurface)
-        .backgroundColor(MaterialTheme.colorScheme.surfaceContainer)
-        .steps(yStepSize)
-        .labelAndAxisLinePadding(20.dp)
-        .axisOffset(20.dp)
-        .labelData { index -> (index * (maxRange / yStepSize)).toString() }
-        .axisLabelDescription { "Jumlah Minum (mL)" }
-        .axisPosition(Gravity.LEFT)
-        .build()
-
-    val barChartData = BarChartData(
-        chartData = barData,
-        xAxisData = xAxisData,
-        yAxisData = yAxisData,
-        backgroundColor = MaterialTheme.colorScheme.surfaceContainer,
-        barStyle = BarStyle(
-            paddingBetweenBars = 20.dp,
-            barWidth = 25.dp
-        ),
-        showYAxis = true,
-        showXAxis = true,
-        horizontalExtraSpace = 0.dp
-    )
-
-    BarChart(
-        modifier = Modifier
-            .height(350.dp),
-        barChartData = barChartData
-    )
-}
-
-@Composable
-fun getCustomBarChartData(
-    drinkData: Map<String, Double>,
-    dataCategoryOptions: DataCategoryOptions
-): List<BarData> {
-    val list = arrayListOf<BarData>()
-    drinkData.entries.forEachIndexed { index, entry ->
-        val date = entry.key
-        val drinkValue = entry.value
-
-        val point = Point(
-            x = index.toFloat(),
-            y = drinkValue.toFloat()
-        )
-        list.add(
-            BarData(
-                point = point,
-                color = MaterialTheme.colorScheme.primary,
-                dataCategoryOptions = dataCategoryOptions,
-                label = date,
-            )
-        )
-    }
-    return list
 }
 
 @Preview(showBackground = true)

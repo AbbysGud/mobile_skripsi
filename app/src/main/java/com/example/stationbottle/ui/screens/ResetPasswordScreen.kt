@@ -16,8 +16,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.stationbottle.R
+import com.example.stationbottle.client.RetrofitClient.apiService
 import com.example.stationbottle.data.ResetPasswordRequest
-import com.example.stationbottle.data.RetrofitClient
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.launch
@@ -138,7 +138,7 @@ fun ResetPasswordScreen(navController: NavController, email: String) {
                     scope.launch {
                         try {
                             val resetPasswordRequest = ResetPasswordRequest(email, token, newPassword, confirmPassword)
-                            val response = RetrofitClient.apiService.resetPassword(resetPasswordRequest)
+                            val response = apiService.resetPassword(resetPasswordRequest)
                             if (response.isSuccessful) {
                                 dialogMessage = "Password berhasil diubah. Silakan login kembali."
                                 Toast.makeText(context, "Password berhasil diubah. Silakan login kembali.", Toast.LENGTH_SHORT).show()

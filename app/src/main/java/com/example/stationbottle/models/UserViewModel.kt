@@ -6,12 +6,14 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
+import com.example.stationbottle.client.RetrofitClient.apiService
 import com.example.stationbottle.data.LoginRequest
 import com.example.stationbottle.data.RegisterRequest
-import com.example.stationbottle.data.RetrofitClient
 import com.example.stationbottle.data.UpdateUserRequest
+import com.example.stationbottle.data.User
 import com.example.stationbottle.data.UserDataStore
-import com.example.stationbottle.data.convertUtcToWIB
+import com.example.stationbottle.data.UserPrediksi
+import com.example.stationbottle.service.convertUtcToWIB
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -21,41 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class User(
-    val token: String,
-    val id: Int,
-    val name: String? = null,
-    val email: String,
-    val date_of_birth: String? = null,
-    val weight: Double? = null,
-    val height: Double? = null,
-    val gender: String? = null,
-    val pregnancy_date: String? = null,
-    val breastfeeding_date: String? = null,
-    val daily_goal: Double? = null,
-    val waktu_mulai: String? = null,
-    val waktu_selesai: String? = null,
-    val rfid_tag: String? = null
-)
 
-data class UserData(
-    val id: Int,
-    val name: String,
-    val email: String,
-    val date_of_birth: String,
-    val weight: Double,
-    val height: Double,
-    val gender: String,
-    val pregnancy_date: String?,
-    val breastfeeding_date: String?,
-    val daily_goal: Double,
-    val waktu_mulai: String? = null,
-    val waktu_selesai: String? = null,
-    val rfid_tag: String,
-    val email_verified_at: String?,
-    val created_at: String,
-    val updated_at: String
-)
 
 class UserViewModel : ViewModel() {
     private val _userState = MutableStateFlow<User?>(null)
@@ -71,6 +39,10 @@ class UserViewModel : ViewModel() {
         return UserDataStore.getUser(context)
     }
 
+    fun getPrediksi(context: Context): Flow<UserPrediksi> {
+        return UserDataStore.getPrediksi(context)
+    }
+
     fun loginUser(
         loginRequest: LoginRequest,
         context: Context,
@@ -82,7 +54,7 @@ class UserViewModel : ViewModel() {
     ) {
         scope.launch {
             try {
-                val response = RetrofitClient.apiService.login(loginRequest)
+                val response = apiService.login(loginRequest)
                 if (response.isSuccessful) {
                     val loginResponse = response.body()
                     if (loginResponse != null) {
@@ -144,7 +116,7 @@ class UserViewModel : ViewModel() {
     fun logoutUser(context: Context, token: String, navController: NavController) {
         viewModelScope.launch {
             try {
-                val response = RetrofitClient.apiService.logout("Bearer $token")
+                val response = apiService.logout("Bearer $token")
                 if (response.isSuccessful) {
                     Log.i("Logout", "Logout Berhasil")
                     withContext(Dispatchers.Main) {
@@ -172,7 +144,7 @@ class UserViewModel : ViewModel() {
     ) {
         scope.launch {
             try {
-                val response = RetrofitClient.apiService.register(registerRequest)
+                val response = apiService.register(registerRequest)
                 if (response.isSuccessful) {
                     val registerResponse = response.body()
                     if (registerResponse != null) {
@@ -218,7 +190,7 @@ class UserViewModel : ViewModel() {
     fun getUserData(context: Context, userId: Int, token: String) {
         viewModelScope.launch {
             try {
-                val response = RetrofitClient.apiService.getUserData(userId)
+                val response = apiService.getUserData(userId)
                 val user = User(
                     token = token,
                     id = response.data.id,
@@ -251,7 +223,7 @@ class UserViewModel : ViewModel() {
     ) {
         viewModelScope.launch {
             try {
-                val response = RetrofitClient.apiService.updateUserData(userId, updateRequest)
+                val response = apiService.updateUserData(userId, updateRequest)
                 val currentUser = _userState.value ?: User(
                     token,
                     userId,

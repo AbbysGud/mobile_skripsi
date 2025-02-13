@@ -156,6 +156,11 @@ class XGBoost {
         val predAir = prediksiAir + learningRate * hitungOutputValue(treesAir.last(), tanggalTerakhir)
         val predWaktu = prediksiWaktu + learningRate * hitungOutputValue(treesWaktu.last(), tanggalTerakhir)
 
+        if (predWaktu <= 0) {
+            println("Invalid predicted time interval (predWaktu): $predWaktu")
+            return null
+        }
+
         val totalInterval = ((batasWaktuDetik - waktuTerakhirDetik) / predWaktu).toInt()
 
         val waktuArray = Array(totalInterval) { index ->

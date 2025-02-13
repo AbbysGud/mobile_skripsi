@@ -66,7 +66,8 @@ class UserViewModel : ViewModel() {
                             daily_goal = loginResponse.data.daily_goal,
                             waktu_mulai = loginResponse.data.waktu_mulai,
                             waktu_selesai = loginResponse.data.waktu_selesai,
-                            rfid_tag = loginResponse.data.rfid_tag
+                            rfid_tag = loginResponse.data.rfid_tag,
+                            frekuensi_notifikasi = loginResponse.data.frekuensi_notifikasi
                         )
                         userViewModel.saveUser(context, user)
                         withContext(Dispatchers.Main) {
@@ -199,7 +200,8 @@ class UserViewModel : ViewModel() {
                     daily_goal = response.data.daily_goal,
                     waktu_mulai = response.data.waktu_mulai,
                     waktu_selesai = response.data.waktu_selesai,
-                    rfid_tag = response.data.rfid_tag
+                    rfid_tag = response.data.rfid_tag,
+                    frekuensi_notifikasi = response.data.frekuensi_notifikasi
                 )
                 saveUser(context, user)
             } catch (e: Exception) {
@@ -232,6 +234,7 @@ class UserViewModel : ViewModel() {
                     null,
                     null,
                     null,
+                    null,
                     null
                 )
                 val updatedUser = currentUser.copy(
@@ -245,7 +248,8 @@ class UserViewModel : ViewModel() {
                     daily_goal = response.data.daily_goal,
                     waktu_mulai = response.data.waktu_mulai,
                     waktu_selesai = response.data.waktu_selesai,
-                    rfid_tag = response.data.rfid_tag
+                    rfid_tag = response.data.rfid_tag,
+                    frekuensi_notifikasi = response.data.frekuensi_notifikasi
                 )
                 saveUser(context, updatedUser)
                 withContext(Dispatchers.Main) {

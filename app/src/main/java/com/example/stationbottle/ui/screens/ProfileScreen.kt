@@ -38,6 +38,7 @@ import com.example.stationbottle.data.UpdateUserRequest
 import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
 import com.example.stationbottle.ui.screens.component.DatePickerOutlinedField
+import com.example.stationbottle.ui.screens.component.OutlinedDropdownMenuBox
 import com.example.stationbottle.ui.screens.component.TargetDailyGoalInfoDialog
 import com.example.stationbottle.ui.screens.component.TimePickerOutlinedField
 import java.text.SimpleDateFormat
@@ -70,7 +71,14 @@ fun ProfileScreen(
     var waktu_selesai by remember { mutableStateOf<String?>(null) }
     var pregnancyDate by remember { mutableStateOf<String?>(null) }
     var breastfeedingDate by remember { mutableStateOf<String?>(null) }
+    var frekuensiNotifikasi by remember { mutableStateOf<Int?>(null) }
     var showTargetInfoDialog by remember { mutableStateOf(false) }
+
+    var timeType by remember { mutableStateOf("Menit") }
+    var hours by remember { mutableIntStateOf(0) }
+    var minutes by remember { mutableIntStateOf(0) }
+
+    val timeOptions = listOf("Menit", "Jam", "Jam + Menit")
 
     LaunchedEffect(user) {
         user?.let {
@@ -86,6 +94,14 @@ fun ProfileScreen(
             waktu_selesai = it.waktu_selesai
             pregnancyDate = it.pregnancy_date
             breastfeedingDate = it.breastfeeding_date
+            frekuensiNotifikasi = it.frekuensi_notifikasi
+            hours = frekuensiNotifikasi?.div(3600) ?: 0
+            minutes = (frekuensiNotifikasi?.rem(3600))?.div(60) ?: 0
+            timeType = when {
+                hours > 0 && minutes > 0 -> "Jam + Menit"
+                hours > 0 -> "Jam"
+                else -> "Menit"
+            }
         }
     }
 
@@ -254,6 +270,75 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Frekuensi Waktu
+            Text(
+                text = "Frekuensi Notifikasi",
+                fontSize = 14.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Start)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedDropdownMenuBox(
+                label = "Pilih Jenis Waktu",
+                selectedOption = timeType,
+                options = timeOptions
+            ) { selected ->
+                timeType = selected
+                if (timeType == "Menit") {
+                    hours = 0
+                } else if (timeType == "Jam") {
+                    minutes = 0
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Dropdown waktu berdasarkan pilihan jenis waktu
+            when (timeType) {
+                "Menit" -> {
+                    OutlinedDropdownMenuBox(
+                        label = "Pilih Jumlah Menit",
+                        selectedOption = "$minutes Menit",
+                        options = (1..59).map { "$it Menit" }
+                    ) { selected -> minutes = selected.removeSuffix(" Menit").toInt() }
+                }
+
+                "Jam" -> {
+                    OutlinedDropdownMenuBox(
+                        label = "Pilih Jumlah Jam",
+                        selectedOption = "$hours Jam",
+                        options = (1..12).map { "$it Jam" }
+                    ) { selected -> hours = selected.removeSuffix(" Jam").toInt() }
+                }
+
+                "Jam + Menit" -> {
+                    Column (
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.Start
+                    ){
+                        OutlinedDropdownMenuBox(
+                            label = "Pilih Jam",
+                            selectedOption = "$hours Jam",
+                            options = (0..12).map { "$it Jam" }
+                        ) { selected -> hours = selected.removeSuffix(" Jam").toInt() }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        OutlinedDropdownMenuBox(
+                            label = "Pilih Menit",
+                            selectedOption = "$minutes Menit",
+                            options = (0..59).map { "$it Menit" }
+                        ) { selected -> minutes = selected.removeSuffix(" Menit").toInt() }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Start
@@ -291,6 +376,8 @@ fun ProfileScreen(
                             )
                         }
 
+                        val frekuensi_notifikasi = hours * 3600 + minutes * 60
+
                         val updateRequest = UpdateUserRequest(
                             name = name,
                             date_of_birth = dateOfBirth,
@@ -301,10 +388,14 @@ fun ProfileScreen(
                             waktu_mulai = waktu_mulai,
                             waktu_selesai = waktu_selesai,
                             pregnancy_date = pregnancyDate,
-                            breastfeeding_date = breastfeedingDate
+                            breastfeeding_date = breastfeedingDate,
+                            frekuensi_notifikasi = frekuensi_notifikasi
                         )
+
                         println(updateRequest)
+
                         val updateResponse = userViewModel.updateUser(navController, context, user.id, updateRequest, token.toString())
+
                         println(updateResponse)
                     },
                     modifier = Modifier.weight(1f),
@@ -501,11 +592,6 @@ fun calculateAdult(weight: Double, height: Double, gender: String, age: Int): Do
         watsonTBW = -2.097 + (0.1069 * height) + (0.2466 * weight)
     }
 
-    println("BMI : $BMI")
-    println("percentage : $percentage")
-    println("watsonTBW : $watsonTBW")
-    println("w30 : ${weight * 30}")
-    println("tes : ${watsonTBW * percentage * 1000}")
     return (weight * 30) + (watsonTBW * percentage * 1000)
 }
 
@@ -575,8 +661,6 @@ fun calculateDailyGoal(
             }
         }
     }
-
-    println("dailygoal : $dailyGoal")
 
     val pregnancyTrimester = calculatePregnancyTrimester(pregnancyDate)
 

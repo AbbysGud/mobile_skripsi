@@ -83,11 +83,19 @@ fun HomeScreen(navController: NavController) {
 
             val timeList = mutableListOf<String>()
 
+            println(user.frekuensi_notifikasi)
+
+            val seconds = if (user.frekuensi_notifikasi != 0 && user.frekuensi_notifikasi != null) {
+                user.frekuensi_notifikasi
+            } else {
+                3600
+            }
+
             while (calendar.time.before(endTime)) {
                 val formattedTime = dateFormat.format(calendar.time)
                 timeList.add(formattedTime)
 
-                calendar.add(Calendar.SECOND, 3600)
+                calendar.add(Calendar.SECOND, seconds)
             }
 
             timeList.forEach { time ->
@@ -229,7 +237,7 @@ fun HomeScreen(navController: NavController) {
 
                     if(waktuMulai == null || waktuMulai == "" ||
                         waktuSelesai == null || waktuSelesai == ""
-                        || statusHistory == false){
+                        || (statusHistory == false && totalPrediksi == 0.0)){
                         Box(
                             modifier = Modifier.size(100.dp),
                             contentAlignment = Alignment.Center

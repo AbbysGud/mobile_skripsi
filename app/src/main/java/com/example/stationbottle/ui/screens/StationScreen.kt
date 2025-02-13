@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,7 +52,6 @@ import com.example.stationbottle.R
 import com.example.stationbottle.ThemeViewModelFactory
 import com.example.stationbottle.client.RetrofitClient
 import com.example.stationbottle.data.ModeRequest
-import com.example.stationbottle.data.NGROKResponse
 import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
 import com.pusher.client.Pusher
@@ -59,6 +59,7 @@ import com.pusher.client.PusherOptions
 import com.pusher.client.channel.PrivateChannelEventListener
 import com.pusher.client.channel.PusherEvent
 import com.pusher.client.connection.ConnectionEventListener
+import com.pusher.client.connection.ConnectionState
 import com.pusher.client.connection.ConnectionStateChange
 import com.pusher.client.util.HttpAuthorizer
 import kotlinx.coroutines.launch
@@ -76,14 +77,6 @@ fun StationScreen(navController: NavController) {
     val themeViewModel: ThemeViewModel = viewModel(factory = ThemeViewModelFactory(context))
     val isDarkTheme = themeViewModel.isDarkMode.collectAsState(initial = false)
 
-    var response: NGROKResponse = NGROKResponse(
-        id = 1,
-        http_url = "http://localhost",
-        websocket_url = "http://localhost",
-        websocket_port = 6001,
-        updated_at = "",
-    )
-
     var options = PusherOptions()
     var pusher: Pusher = Pusher("stationbottlebe_pusher", options)
 
@@ -91,105 +84,15 @@ fun StationScreen(navController: NavController) {
     val (mode, setMode) = remember { mutableStateOf("") }
     val (rfid, setRFID) = remember { mutableStateOf("") }
     val (message, setMessage) = remember { mutableStateOf("") }
-    val isConnected = remember { mutableStateOf(false) }
+    val (isConnected, setConnected) = remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit){
-        response = RetrofitClient.apiService.getNGROKUrl()
-        println("response $response")
-
-        RetrofitClient.setDynamicBaseUrl("${response.http_url}/api/")
-
-        val authUrl = "${response.http_url}/broadcasting/auth"
-        val authorizer = HttpAuthorizer(authUrl).apply {
-            setHeaders(
-                mapOf(
-                    "Accept" to "application/json",
-                    "X-Requested-With" to "XMLHttpRequest"
-                )
-            )
-        }
-
-        options = PusherOptions().apply {
-            setCluster("mt1")
-            setHost("0.tcp.ap.ngrok.io")
-            setWsPort(response.websocket_port)
-            isUseTLS = false
-            setAuthorizer(authorizer)
-        }
-
-        pusher = Pusher("stationbottlebe_pusher", options)
-        println("Pusher instance created")
-
-        val channel = pusher.subscribePrivate("private-weight-channel")
-
-        channel.bind("client-WeightEvent", object : PrivateChannelEventListener {
-            override fun onEvent(event: PusherEvent) {
-                try {
-                    val jsonObject = JSONObject(event.data)
-
-                    val weight = if (jsonObject.has("weight") && !jsonObject.isNull("weight")) {
-                        jsonObject.getDouble("weight").toFloat()
-                    } else {
-                        0.0f
-                    }
-                    setWeight(weight)
-
-                    val mode = if (jsonObject.has("mode") && !jsonObject.isNull("mode")) {
-                        jsonObject.getString("mode")
-                    } else {
-                        "WEIGH_MODE"
-                    }
-                    setMode(mode)
-
-                    val rfid = if (jsonObject.has("rfid") && !jsonObject.isNull("rfid")) {
-                        jsonObject.getString("rfid")
-                    } else {
-                        ""
-                    }
-                    setRFID(rfid)
-
-                    val message = if (jsonObject.has("message") && !jsonObject.isNull("message")) {
-                        jsonObject.getString("message")
-                    } else {
-                        ""
-                    }
-                    setMessage(message)
-
-                } catch (e: JSONException) {
-                    setWeight(0.0f)
-                    setMode("")
-                    setRFID("")
-                    setMessage("Error parsing data")
-                    println("Error parsing JSON: ${e.message}")
-                }
-            }
-
-            override fun onSubscriptionSucceeded(channelName: String) {
-                println("Subscription succeeded to $channelName")
-            }
-
-            override fun onAuthenticationFailure(message: String, e: Exception) {
-                println("Authentication failed: $message, Exception: $e")
-            }
-        })
-
-        pusher.connect(object : ConnectionEventListener {
-            override fun onConnectionStateChange(change: ConnectionStateChange) {
-                println("State changed from ${change.previousState} to ${change.currentState}")
-            }
-
-            override fun onError(message: String?, code: String?, e: Exception?) {
-                println("Error: $message, Code: $code, Exception: $e")
-            }
-        })
-
-        isConnected.value = true
+        pusher = connectToPusher(setWeight, setMode, setRFID, setMessage, setConnected)
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            pusher.disconnect()
-            println("Disconnect from pusher")
+            disconnectFromPusher(pusher, setConnected, setWeight, setMode, setRFID, setMessage)
         }
     }
 
@@ -241,7 +144,7 @@ fun StationScreen(navController: NavController) {
                         .border(
                             width = 2.dp,
                             color =
-                            if (isConnected.value == true && mode != "")
+                            if (isConnected == true && mode != "")
                                 MaterialTheme.colorScheme.primaryContainer
                             else
                                 MaterialTheme.colorScheme.error,
@@ -255,12 +158,12 @@ fun StationScreen(navController: NavController) {
                 ) {
                     Text(
                         text =
-                            if (isConnected.value == true && mode != "")
+                            if (isConnected == true && mode != "")
                                 "Online"
                             else
                                 "Offline",
                         color =
-                        if (isConnected.value == true && mode != "")
+                        if (isConnected == true && mode != "")
                             MaterialTheme.colorScheme.primaryContainer
                         else
                             MaterialTheme.colorScheme.error,
@@ -271,7 +174,7 @@ fun StationScreen(navController: NavController) {
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (isConnected.value == false) {
+                if (isConnected == false) {
                     Text(
                         text = "Belum Terhubung ke Sensor",
                         fontSize = 14.sp,
@@ -295,12 +198,12 @@ fun StationScreen(navController: NavController) {
 
                 Button(
                     onClick = {
-                        if (isConnected.value == true) {
-                            pusher.disconnect()
-                            isConnected.value = false
+                        if (isConnected == true) {
+                            disconnectFromPusher(pusher, setConnected, setWeight, setMode, setRFID, setMessage)
                         } else {
-                            pusher.connect()
-                            isConnected.value = true
+                            scope.launch {
+                                pusher = connectToPusher(setWeight, setMode, setRFID, setMessage, setConnected)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -312,7 +215,7 @@ fun StationScreen(navController: NavController) {
                 ) {
                     Text(
                         text =
-                            if (isConnected.value == true)
+                            if (isConnected == true)
                                 "Disconnect"
                             else
                                 "Connect"
@@ -322,7 +225,7 @@ fun StationScreen(navController: NavController) {
             }
         }
 
-        if (isConnected.value == true) {
+        if (isConnected == true) {
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
@@ -359,39 +262,132 @@ fun StationScreen(navController: NavController) {
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Text(
-                            text = "$weight g",
-                            fontSize = 16.sp,
-                            textAlign = TextAlign.Center,
-                            fontWeight = FontWeight.Light,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = {
-                                val mode = ModeRequest(
-                                    message = "TARE_SCALE",
-                                    user_id = user?.id!!
-                                )
-                                println(mode)
-
-                                scope.launch {
-                                    try {
-                                        val response = RetrofitClient.dynamicApiService.sendMode(mode)
-                                        println("Response: $response")
-                                    } catch (e: Exception) {
-                                        println("Error sending mode: ${e.message}")
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Text(text = "Tare")
+                            Text(
+                                text = "$weight g",
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center,
+                                fontWeight = FontWeight.Light,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clickable {
+                                        val mode = ModeRequest(
+                                            message = "TARE_SCALE",
+                                            user_id = user?.id!!
+                                        )
+                                        scope.launch {
+                                            try {
+                                                val response = RetrofitClient.dynamicApiService.sendMode(mode)
+                                                println("Response: $response")
+                                            } catch (e: Exception) {
+                                                println("Error sending mode: ${e.message}")
+                                            }
+                                        }
+                                    },
+                                elevation = CardDefaults.elevatedCardElevation(4.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(8.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Image(
+                                        painter = painterResource(R.drawable.baseline_power_settings_new_24),
+                                        contentDescription = "TARE ICON",
+                                        modifier = Modifier.size(32.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = "TARE",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(16.dp))
+
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clickable {
+                                        val mode = ModeRequest(
+                                            message = "GANTI_BOTOL",
+                                            user_id = user?.id!!
+                                        )
+                                        scope.launch {
+                                            try {
+                                                val response = RetrofitClient.dynamicApiService.sendMode(mode)
+                                                println("Response: $response")
+                                            } catch (e: Exception) {
+                                                println("Error sending mode: ${e.message}")
+                                            }
+                                        }
+                                    },
+                                elevation = CardDefaults.elevatedCardElevation(4.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(8.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Image(
+                                        painter = painterResource(R.drawable.bottle_white),
+                                        contentDescription = "GANTI ICON",
+                                        modifier = Modifier.size(32.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = "GANTI BOTOL",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                }
+                            }
                         }
                     } else if (mode == "RFID_MODE") {
                         Text(
@@ -439,7 +435,7 @@ fun StationScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Row(
                 modifier = Modifier
@@ -569,9 +565,112 @@ fun StationScreen(navController: NavController) {
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
+
+suspend fun connectToPusher(
+    setWeight: (Float) -> Unit,
+    setMode: (String) -> Unit,
+    setRFID: (String) -> Unit,
+    setMessage: (String) -> Unit,
+    setConnected: (Boolean) -> Unit
+): Pusher {
+    val response = RetrofitClient.apiService.getNGROKUrl()
+
+    RetrofitClient.setDynamicBaseUrl("${response.http_url}/api/")
+
+    val options = PusherOptions().apply {
+        setCluster("mt1")
+        setHost("0.tcp.ap.ngrok.io")
+        setWsPort(response.websocket_port)
+        isUseTLS = false
+        setAuthorizer(
+            HttpAuthorizer("${response.http_url}/broadcasting/auth").apply {
+                setHeaders(
+                    mapOf(
+                        "Accept" to "application/json",
+                        "X-Requested-With" to "XMLHttpRequest"
+                    )
+                )
+            }
+        )
+    }
+
+    val pusher = Pusher("stationbottlebe_pusher", options)
+    println("Pusher instance created")
+
+    val channel = pusher.subscribePrivate("private-weight-channel")
+
+    channel.bind("client-WeightEvent", object : PrivateChannelEventListener {
+        override fun onEvent(event: PusherEvent) {
+            try {
+                val jsonObject = JSONObject(event.data)
+                val weight = jsonObject.optDouble("weight", 0.0).toFloat()
+                val mode = jsonObject.optString("mode", "WEIGH_MODE")
+                val rfid = jsonObject.optString("rfid", "")
+                val message = jsonObject.optString("message", "")
+
+                setWeight(weight)
+                setMode(mode)
+                setRFID(rfid)
+                setMessage(message)
+
+            } catch (e: JSONException) {
+                setWeight(0.0f)
+                setMode("")
+                setRFID("")
+                setMessage("Error parsing data")
+                println("Error parsing JSON: ${e.message}")
+            }
+        }
+
+        override fun onSubscriptionSucceeded(channelName: String) {
+            println("Subscription succeeded to $channelName")
+        }
+
+        override fun onAuthenticationFailure(message: String, e: Exception) {
+            println("Authentication failed: $message, Exception: $e")
+        }
+    })
+
+    pusher.connect(object : ConnectionEventListener {
+        override fun onConnectionStateChange(change: ConnectionStateChange) {
+            println("State changed from ${change.previousState} to ${change.currentState}")
+            if (change.currentState == ConnectionState.CONNECTED) {
+                setConnected(true)
+            }
+        }
+
+        override fun onError(message: String?, code: String?, e: Exception?) {
+            println("Error: $message, Code: $code, Exception: $e")
+            setMessage("Connection error: $message")
+        }
+    })
+
+    return pusher
+}
+
+fun disconnectFromPusher(
+    pusher: Pusher?,
+    setConnected: (Boolean) -> Unit,
+    setWeight: (Float) -> Unit,
+    setMode: (String) -> Unit,
+    setRFID: (String) -> Unit,
+    setMessage: (String) -> Unit
+) {
+    pusher?.disconnect()
+    setConnected(false)
+    setWeight(0.0f)
+    setMode("")
+    setRFID("")
+    setMessage("Disconnected from Pusher")
+
+    println("Disconnected from Pusher")
+}
+
 
 @Preview(showBackground = true)
 @Composable

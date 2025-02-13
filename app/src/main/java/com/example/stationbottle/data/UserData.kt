@@ -14,7 +14,8 @@ data class User(
     val daily_goal: Double? = null,
     val waktu_mulai: String? = null,
     val waktu_selesai: String? = null,
-    val rfid_tag: String? = null
+    val rfid_tag: String? = null,
+    val frekuensi_notifikasi: Int? = null
 )
 
 data class UserData(
@@ -31,6 +32,7 @@ data class UserData(
     val waktu_mulai: String? = null,
     val waktu_selesai: String? = null,
     val rfid_tag: String,
+    val frekuensi_notifikasi: Int? = null,
     val email_verified_at: String?,
     val created_at: String,
     val updated_at: String

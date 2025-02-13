@@ -25,6 +25,7 @@ object UserDataStore {
     private val DAILY_GOAL_KEY = doublePreferencesKey("user_daily_goal")
     private val WAKTU_MULAI_KEY = stringPreferencesKey("user_waktu_mulai")
     private val WAKTU_SELESAI_KEY = stringPreferencesKey("user_waktu_selesai")
+    private val FREKUENSI_NOTIFIKASI_KEY = intPreferencesKey("user_frekuensi_notifikasi")
     private val RFID_TAG_KEY = stringPreferencesKey("user_rfid_tag")
     private val DARK_MODE_KEY = booleanPreferencesKey("dark_mode")
     private val MINUM_AKHIR_KEY = doublePreferencesKey("minum_akhir")
@@ -142,6 +143,7 @@ object UserDataStore {
             preferences[WAKTU_MULAI_KEY] = user.waktu_mulai ?: ""
             preferences[WAKTU_SELESAI_KEY] = user.waktu_selesai ?: ""
             preferences[RFID_TAG_KEY] = user.rfid_tag ?: ""
+            preferences[FREKUENSI_NOTIFIKASI_KEY] = user.frekuensi_notifikasi ?: 0
         }
     }
 
@@ -169,6 +171,7 @@ object UserDataStore {
                 val waktu_mulai = preferences[WAKTU_MULAI_KEY] ?: ""
                 val waktu_selesai = preferences[WAKTU_SELESAI_KEY] ?: ""
                 val rfid_tag = preferences[RFID_TAG_KEY] ?: ""
+                val frekuensi_notifikasi = preferences[FREKUENSI_NOTIFIKASI_KEY] ?: 0
 
                 if (token != null && id != null && email != null) {
                     User(
@@ -185,7 +188,8 @@ object UserDataStore {
                         daily_goal = daily_goal,
                         waktu_mulai = waktu_mulai,
                         waktu_selesai = waktu_selesai,
-                        rfid_tag = rfid_tag
+                        rfid_tag = rfid_tag,
+                        frekuensi_notifikasi = frekuensi_notifikasi
                     )
                 } else {
                     null
@@ -208,6 +212,7 @@ object UserDataStore {
             preferences.remove(DAILY_GOAL_KEY)
             preferences.remove(WAKTU_MULAI_KEY)
             preferences.remove(WAKTU_SELESAI_KEY)
+            preferences.remove(FREKUENSI_NOTIFIKASI_KEY)
             preferences.remove(RFID_TAG_KEY)
             preferences.remove(MINUM_AKHIR_KEY)
             preferences.remove(WAKTU_AKHIR_KEY)

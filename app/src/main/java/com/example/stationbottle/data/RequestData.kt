@@ -32,7 +32,8 @@ data class UpdateUserRequest(
     val breastfeeding_date: String? = null,
     val daily_goal: Double? = null,
     val waktu_mulai: String? = null,
-    val waktu_selesai: String? = null
+    val waktu_selesai: String? = null,
+    val frekuensi_notifikasi: Int? = null
 )
 
 data class ModeRequest(

@@ -41,13 +41,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
-import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.R
 import com.example.stationbottle.ThemeViewModelFactory
 import com.example.stationbottle.client.RetrofitClient
@@ -67,7 +63,7 @@ import org.json.JSONException
 import org.json.JSONObject
 
 @Composable
-fun StationScreen(navController: NavController) {
+fun StationScreen() {
     val context = LocalContext.current
     val userViewModel = UserViewModel()
     val userState = userViewModel.getUser(context).collectAsState(initial = null)
@@ -669,14 +665,4 @@ fun disconnectFromPusher(
     setMessage("Disconnected from Pusher")
 
     println("Disconnected from Pusher")
-}
-
-
-@Preview(showBackground = true)
-@Composable
-fun StationScreenPreview() {
-    AppTheme {
-        val navController = rememberNavController()
-        StationScreen(navController)
-    }
 }

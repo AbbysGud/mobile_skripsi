@@ -65,7 +65,9 @@ interface ApiService {
     suspend fun getSensorData(
         @Query("from_date") fromDate: String,
         @Query("to_date") toDate: String,
-        @Query("user_id") userId: Int
+        @Query("user_id") userId: Int,
+        @Query("waktu_mulai") waktuMulai: String? = null,
+        @Query("waktu_selesai") waktuSelesai: String? = null
     ): SensorDataResponse
 
     @GET("sensor-data/history")
@@ -90,7 +92,7 @@ fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false, timeOnly: Bo
                 val utcFormat =
                     SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
                 utcFormat.timeZone = TimeZone.getTimeZone("UTC")
-                val date = utcFormat.parse(it)
+                val date = utcFormat.parse(it)!!
 
                 val wibFormat = when {
                     timeOnly -> SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -104,6 +106,7 @@ fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false, timeOnly: Bo
                 return it
             }
         } catch (e: Exception) {
+            println("Error: $e")
             null
         }
     }

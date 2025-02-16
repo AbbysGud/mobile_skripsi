@@ -25,7 +25,6 @@ data class PredictionResult(
     val todayList: LinkedHashMap<String, Double>,
     val prediksiList: LinkedHashMap<String, Double>,
     val statusHistory: Boolean,
-    val isNotif: Boolean,
 )
 
 data class NGROKResponse(

@@ -1,13 +1,14 @@
 package com.example.stationbottle.data
 
 import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.time.LocalTime
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
 class XGBoost {
-    private val formatter = DecimalFormat("#.###")
     private val lambda = 1.0
     private val gamma = 50.0
     private val learningRate = 0.5
@@ -15,6 +16,8 @@ class XGBoost {
     private var prediksiWaktu = 0.0
     private val treesAir = mutableListOf<TreeNode>()
     private val treesWaktu = mutableListOf<TreeNode>()
+    val symbols = DecimalFormatSymbols(Locale.US)
+    val decimalFormat = DecimalFormat("#.##", symbols)
 
     fun latihModel(tanggal: Array<String>, waktu: Array<String>, jumlahAir: DoubleArray, maxIterasi: Int) {
         val waktuDalamDetik = waktu.map { LocalTime.parse(it).toSecondOfDay().toDouble() }
@@ -32,12 +35,12 @@ class XGBoost {
 
         prediksiAir = jumlahAir.average()
         var residualsAir = jumlahAir.map {
-            formatter.format(it - prediksiAir).toDouble()
+            decimalFormat.parse(decimalFormat.format(it - prediksiAir))!!.toDouble()
         }
 
         prediksiWaktu = jumlahWaktu.average()
         var residualsWaktu = jumlahWaktu.map {
-            formatter.format(it - prediksiWaktu).toDouble()
+            decimalFormat.parse(decimalFormat.format(it - prediksiWaktu))!!.toDouble()
         }
 
         val epsilon = 1e-6
@@ -97,7 +100,7 @@ class XGBoost {
     }
 
     private fun hitungSimilarity(residuals: List<Double>): Double {
-        val sumResiduals = formatter.format(residuals.sum()).toDouble()
+        val sumResiduals = decimalFormat.parse(decimalFormat.format(residuals.sum()))!!.toDouble()
         val similarity = (sumResiduals * sumResiduals) / (residuals.size + lambda)
         return similarity
     }
@@ -141,14 +144,18 @@ class XGBoost {
         }
     }
 
-    fun prediksi(waktuTerakhir: String, batasWaktu: String, tanggalTerakhir: String): Pair<DoubleArray, Array<Double>>? {
+    fun prediksi(waktuTerakhir: String, batasWaktu: String, tanggalTerakhir: String, isBedaHari: Boolean): Pair<DoubleArray, Array<Double>>? {
         if (treesAir.isEmpty() || treesWaktu.isEmpty()) {
             println("Model has not been trained. Please train before prediction.")
             return null
         }
 
         val waktuTerakhirDetik = LocalTime.parse(waktuTerakhir).toSecondOfDay().toDouble()
-        val batasWaktuDetik = LocalTime.parse(batasWaktu).toSecondOfDay().toDouble()
+        var batasWaktuDetik = LocalTime.parse(batasWaktu).toSecondOfDay().toDouble()
+
+        if(isBedaHari){
+            batasWaktuDetik += 86400
+        }
 
         println(treesAir.last())
         println(treesWaktu.last())
@@ -165,7 +172,12 @@ class XGBoost {
 
         val waktuArray = Array(totalInterval) { index ->
             val waktuDetik = waktuTerakhirDetik + (index + 1) * predWaktu
-            val waktu = LocalTime.ofSecondOfDay(waktuDetik.toLong()).toString()
+            var waktu:String
+            if(isBedaHari && waktuDetik > 86400){
+                waktu = LocalTime.ofSecondOfDay((waktuDetik - 86400).toLong()).toString()
+            } else {
+                waktu = LocalTime.ofSecondOfDay(waktuDetik.toLong()).toString()
+            }
             waktu
         }
 

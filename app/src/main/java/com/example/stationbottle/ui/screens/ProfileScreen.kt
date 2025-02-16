@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -50,6 +51,8 @@ fun ProfileScreen(
     navController: NavController,
     onThemeChange: () -> Unit
 ) {
+    var isLoading by remember { mutableStateOf(true) }
+
     val context = LocalContext.current
 
     val themeViewModel: ThemeViewModel = viewModel(factory = ThemeViewModelFactory(context))
@@ -82,6 +85,8 @@ fun ProfileScreen(
 
     LaunchedEffect(user) {
         user?.let {
+            isLoading = true
+
             userViewModel.getUserData(context, it.id, token.toString())
             name = it.name
             email = it.email
@@ -102,325 +107,347 @@ fun ProfileScreen(
                 hours > 0 -> "Jam"
                 else -> "Menit"
             }
+
+            isLoading = false
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = 32.dp, top = 32.dp, end = 32.dp, bottom = 0.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
-    ) {
-        Text(text = "Halaman Profil", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Image(
-            painter = painterResource(id = R.drawable.default_profile),
-            contentDescription = "Default Profile Image",
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .size(128.dp)
-                .clip(CircleShape)
-                .background(Color.Gray),
-            contentScale = ContentScale.Crop
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (user != null) {
-            Text(
-                text = name?.ifEmpty { "Nama Anda di Sini" } ?: "",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-
-            Text(
-                text = email?.ifEmpty { "Email Anda di Sini" } ?: "",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            OutlinedTextField(
-                value = name?.ifEmpty { "" } ?: "",
-                onValueChange = { name = it },
-                label = { Text("Nama") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
+                .fillMaxSize()
+                .padding(start = 32.dp, top = 32.dp, end = 32.dp, bottom = 0.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top
+        ) {
+            Text(text = "Halaman Profil", fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
 
-            DatePickerOutlinedField(
-                label = "Tanggal Lahir",
-                date = dateOfBirth?.ifEmpty { "" } ?: "",
-                onDateSelected = { dateOfBirth = it }
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = if (weight == 0.0) "" else weight.toString(),
-                onValueChange = { weight = it.toDoubleOrNull() ?: 0.0 },
-                label = { Text("Berat Badan (kg)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = if (height == 0.0) "" else height.toString(),
-                onValueChange = { height = it.toDoubleOrNull() ?: 0.0 },
-                label = { Text("Tinggi Badan (cm)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Jenis Kelamin",
-                fontSize = 14.sp,
+            Image(
+                painter = painterResource(id = R.drawable.default_profile),
+                contentDescription = "Default Profile Image",
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Start)
+                    .size(128.dp)
+                    .clip(CircleShape)
+                    .background(Color.Gray),
+                contentScale = ContentScale.Crop
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                RadioButton(
-                    selected = (gender == "male"),
-                    onClick = { gender = "male" }
-                )
-                Text(
-                    text = "Pria",
-                    modifier = Modifier.clickable { gender = "male" }
-                )
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                RadioButton(
-                    selected = (gender == "female"),
-                    onClick = { gender = "female" }
-                )
-                Text(
-                    text = "Wanita",
-                    modifier = Modifier.clickable { gender = "female" }
-                )
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (gender == "female") {
-                DatePickerOutlinedField(
-                    label = "Tanggal Kehamilan (Opsional)",
-                    date = pregnancyDate?.ifEmpty { "" } ?: "",
-                    onDateSelected = { pregnancyDate = it },
-                    onClear = { pregnancyDate = "" }
+            if (user != null) {
+                Text(
+                    text = name?.ifEmpty { "Nama Anda di Sini" } ?: "",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+
+                Text(
+                    text = email?.ifEmpty { "Email Anda di Sini" } ?: "",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                OutlinedTextField(
+                    value = name?.ifEmpty { "" } ?: "",
+                    onValueChange = { name = it },
+                    label = { Text("Nama") },
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 DatePickerOutlinedField(
-                    label = "Tanggal Menyusui (Opsional)",
-                    date = breastfeedingDate?.ifEmpty { "" } ?: "",
-                    onDateSelected = { breastfeedingDate = it },
-                    onClear = { breastfeedingDate = "" }
+                    label = "Tanggal Lahir",
+                    date = dateOfBirth?.ifEmpty { "" } ?: "",
+                    onDateSelected = { dateOfBirth = it }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
-            }
 
-            OutlinedTextField(
-                value = if (dailyGoal == 0.0) "" else dailyGoal.toString(),
-                onValueChange = { dailyGoal = it.toDoubleOrNull() ?: 0.0 },
-                label = { Text("Target Harian (L)") },
-                readOnly = true,
-                modifier = Modifier.fillMaxWidth(),
-                trailingIcon = {
-                    IconButton(onClick = { showTargetInfoDialog = true }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.outline_info_24),
-                            contentDescription = "Informasi Target Harian"
-                        )
-                    }
-                },
-            )
+                OutlinedTextField(
+                    value = if (weight == 0.0) "" else weight.toString(),
+                    onValueChange = { weight = it.toDoubleOrNull() ?: 0.0 },
+                    label = { Text("Berat Badan (kg)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-            if (showTargetInfoDialog) {
-                TargetDailyGoalInfoDialog(onDismissRequest = { showTargetInfoDialog = false })
-            }
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = if (height == 0.0) "" else height.toString(),
+                    onValueChange = { height = it.toDoubleOrNull() ?: 0.0 },
+                    label = { Text("Tinggi Badan (cm)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-            TimePickerOutlinedField(
-                label = "Waktu Mulai",
-                time = waktu_mulai?.ifEmpty { "" } ?: "",
-                onTimeSelected = { waktu_mulai = it }
-            )
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TimePickerOutlinedField(
-                label = "Waktu Selesai",
-                time = waktu_selesai?.ifEmpty { "" } ?: "",
-                onTimeSelected = { waktu_selesai = it }
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Frekuensi Waktu
-            Text(
-                text = "Frekuensi Notifikasi",
-                fontSize = 14.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Start)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedDropdownMenuBox(
-                label = "Pilih Jenis Waktu",
-                selectedOption = timeType,
-                options = timeOptions
-            ) { selected ->
-                timeType = selected
-                if (timeType == "Menit") {
-                    hours = 0
-                } else if (timeType == "Jam") {
-                    minutes = 0
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Dropdown waktu berdasarkan pilihan jenis waktu
-            when (timeType) {
-                "Menit" -> {
-                    OutlinedDropdownMenuBox(
-                        label = "Pilih Jumlah Menit",
-                        selectedOption = "$minutes Menit",
-                        options = (1..59).map { "$it Menit" }
-                    ) { selected -> minutes = selected.removeSuffix(" Menit").toInt() }
-                }
-
-                "Jam" -> {
-                    OutlinedDropdownMenuBox(
-                        label = "Pilih Jumlah Jam",
-                        selectedOption = "$hours Jam",
-                        options = (1..12).map { "$it Jam" }
-                    ) { selected -> hours = selected.removeSuffix(" Jam").toInt() }
-                }
-
-                "Jam + Menit" -> {
-                    Column (
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.Start
-                    ){
-                        OutlinedDropdownMenuBox(
-                            label = "Pilih Jam",
-                            selectedOption = "$hours Jam",
-                            options = (0..12).map { "$it Jam" }
-                        ) { selected -> hours = selected.removeSuffix(" Jam").toInt() }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        OutlinedDropdownMenuBox(
-                            label = "Pilih Menit",
-                            selectedOption = "$minutes Menit",
-                            options = (0..59).map { "$it Menit" }
-                        ) { selected -> minutes = selected.removeSuffix(" Menit").toInt() }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
-            ) {
                 Text(
-                    text = "Mode Gelap",
-                    modifier = Modifier.weight(1f)
+                    text = "Jenis Kelamin",
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Start)
                 )
-                Switch(
-                    checked = isDarkTheme.value,
-                    onCheckedChange = {
-                        onThemeChange()
-                    }
-                )
-            }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Start,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    RadioButton(
+                        selected = (gender == "male"),
+                        onClick = { gender = "male" }
+                    )
+                    Text(
+                        text = "Pria",
+                        modifier = Modifier.clickable { gender = "male" }
+                    )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 64.dp)
-            ) {
-                Button(
-                    onClick = {
-                        if (dateOfBirth != null && dateOfBirth!!.isNotEmpty() && weight != null && weight != 0.0 && height != null && height != 0.0 && gender != null && gender!!.isNotEmpty()) {
-                            dailyGoal = calculateDailyGoal(
-                                age = calculateAge(dateOfBirth!!),
-                                weight = weight!!,
-                                height = height!!,
-                                gender = gender!!,
-                                pregnancyDate = pregnancyDate.toString(),
-                                breastfeedingDate = breastfeedingDate.toString()
+                    RadioButton(
+                        selected = (gender == "female"),
+                        onClick = { gender = "female" }
+                    )
+                    Text(
+                        text = "Wanita",
+                        modifier = Modifier.clickable { gender = "female" }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (gender == "female") {
+                    DatePickerOutlinedField(
+                        label = "Tanggal Kehamilan (Opsional)",
+                        date = pregnancyDate?.ifEmpty { "" } ?: "",
+                        onDateSelected = { pregnancyDate = it },
+                        onClear = { pregnancyDate = "" }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    DatePickerOutlinedField(
+                        label = "Tanggal Menyusui (Opsional)",
+                        date = breastfeedingDate?.ifEmpty { "" } ?: "",
+                        onDateSelected = { breastfeedingDate = it },
+                        onClear = { breastfeedingDate = "" }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                OutlinedTextField(
+                    value = if (dailyGoal == 0.0) "" else dailyGoal.toString(),
+                    onValueChange = { dailyGoal = it.toDoubleOrNull() ?: 0.0 },
+                    label = { Text("Target Harian (mL)") },
+                    readOnly = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(onClick = { showTargetInfoDialog = true }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.outline_info_24),
+                                contentDescription = "Informasi Target Harian"
                             )
                         }
+                    },
+                )
 
-                        val frekuensi_notifikasi = hours * 3600 + minutes * 60
+                if (showTargetInfoDialog) {
+                    TargetDailyGoalInfoDialog(onDismissRequest = { showTargetInfoDialog = false })
+                }
 
-                        val updateRequest = UpdateUserRequest(
-                            name = name,
-                            date_of_birth = dateOfBirth,
-                            weight = if (weight == 0.0) null else weight,
-                            height = if (height == 0.0) null else height,
-                            gender = gender,
-                            daily_goal = if (dailyGoal == 0.0) null else dailyGoal,
-                            waktu_mulai = waktu_mulai,
-                            waktu_selesai = waktu_selesai,
-                            pregnancy_date = pregnancyDate,
-                            breastfeeding_date = breastfeedingDate,
-                            frekuensi_notifikasi = frekuensi_notifikasi
+                Spacer(modifier = Modifier.height(16.dp))
+
+                TimePickerOutlinedField(
+                    label = "Waktu Mulai",
+                    time = waktu_mulai?.ifEmpty { "" } ?: "",
+                    onTimeSelected = { waktu_mulai = it }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                TimePickerOutlinedField(
+                    label = "Waktu Selesai",
+                    time = waktu_selesai?.ifEmpty { "" } ?: "",
+                    onTimeSelected = { waktu_selesai = it }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Frekuensi Waktu
+                Text(
+                    text = "Frekuensi Notifikasi",
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Start)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedDropdownMenuBox(
+                    label = "Pilih Jenis Waktu",
+                    selectedOption = timeType,
+                    options = timeOptions
+                ) { selected ->
+                    timeType = selected
+                    if (timeType == "Menit") {
+                        hours = 0
+                    } else if (timeType == "Jam") {
+                        minutes = 0
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Dropdown waktu berdasarkan pilihan jenis waktu
+                when (timeType) {
+                    "Menit" -> {
+                        OutlinedDropdownMenuBox(
+                            label = "Pilih Jumlah Menit",
+                            selectedOption = "$minutes Menit",
+                            options = (1..59).map { "$it Menit" }
+                        ) { selected -> minutes = selected.removeSuffix(" Menit").toInt() }
+                    }
+
+                    "Jam" -> {
+                        OutlinedDropdownMenuBox(
+                            label = "Pilih Jumlah Jam",
+                            selectedOption = "$hours Jam",
+                            options = (1..12).map { "$it Jam" }
+                        ) { selected -> hours = selected.removeSuffix(" Jam").toInt() }
+                    }
+
+                    "Jam + Menit" -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            OutlinedDropdownMenuBox(
+                                label = "Pilih Jam",
+                                selectedOption = "$hours Jam",
+                                options = (0..12).map { "$it Jam" }
+                            ) { selected -> hours = selected.removeSuffix(" Jam").toInt() }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            OutlinedDropdownMenuBox(
+                                label = "Pilih Menit",
+                                selectedOption = "$minutes Menit",
+                                options = (0..59).map { "$it Menit" }
+                            ) { selected -> minutes = selected.removeSuffix(" Menit").toInt() }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    Text(
+                        text = "Mode Gelap",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = isDarkTheme.value,
+                        onCheckedChange = {
+                            onThemeChange()
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 64.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            isLoading = true
+
+                            if (dateOfBirth != null && dateOfBirth!!.isNotEmpty() && weight != null && weight != 0.0 && height != null && height != 0.0 && gender != null && gender!!.isNotEmpty()) {
+                                dailyGoal = calculateDailyGoal(
+                                    age = calculateAge(dateOfBirth!!),
+                                    weight = weight!!,
+                                    height = height!!,
+                                    gender = gender!!,
+                                    pregnancyDate = pregnancyDate.toString(),
+                                    breastfeedingDate = breastfeedingDate.toString()
+                                )
+                            }
+
+                            val frekuensi_notifikasi = hours * 3600 + minutes * 60
+
+                            val updateRequest = UpdateUserRequest(
+                                name = name,
+                                date_of_birth = dateOfBirth,
+                                weight = if (weight == 0.0) null else weight,
+                                height = if (height == 0.0) null else height,
+                                gender = gender,
+                                daily_goal = if (dailyGoal == 0.0) null else dailyGoal,
+                                waktu_mulai = waktu_mulai,
+                                waktu_selesai = waktu_selesai,
+                                pregnancy_date = pregnancyDate,
+                                breastfeeding_date = breastfeedingDate,
+                                frekuensi_notifikasi = frekuensi_notifikasi
+                            )
+
+                            userViewModel.updateUser(
+                                navController,
+                                context,
+                                user.id,
+                                updateRequest,
+                                token.toString()
+                            )
+
+                            isLoading = false
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
+                    ) {
+                        Text("Update Profile")
+                    }
 
-                        println(updateRequest)
-
-                        val updateResponse = userViewModel.updateUser(navController, context, user.id, updateRequest, token.toString())
-
-                        println(updateResponse)
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                ) {
-                    Text("Update Profile")
+                    Button(
+                        onClick = {
+                            userViewModel.logoutUser(context, token.toString(), navController)
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Text(text = "Logout")
+                    }
                 }
+            }
+        }
 
-                Button(
-                    onClick = {
-                        userViewModel.logoutUser(context, token.toString(), navController)
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    )
-                ) {
-                    Text(text = "Logout")
-                }
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.25f))
+                    .clickable(enabled = false) {},
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color.White)
             }
         }
     }

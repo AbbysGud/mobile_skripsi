@@ -7,12 +7,15 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import com.example.stationbottle.client.RetrofitClient.apiService
 import com.example.stationbottle.data.PredictionResult
+import com.example.stationbottle.data.SensorData
+import com.example.stationbottle.data.User
 import com.example.stationbottle.data.UserDataStore
 import com.example.stationbottle.data.UserDataStore.getPrediksi
 import com.example.stationbottle.data.fetchTodaySensorData
 import com.example.stationbottle.service.convertUtcToWIB
 import kotlinx.coroutines.flow.first
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.Date
 import java.util.Locale
 import kotlin.collections.set
@@ -20,7 +23,7 @@ import kotlin.math.abs
 
 suspend fun calculatePrediction(
     context: Context,
-    userId: Int,
+    user: User,
     waktuMulai: String,
     waktuSelesai: String,
 ): PredictionResult {
@@ -41,12 +44,12 @@ suspend fun calculatePrediction(
     var totalPrediksi: Double = 0.0
 
     var statusHistory: Boolean
-    var isNotif: Boolean = false
+    var isBedaHari: Boolean = false
 
-    val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    val today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
     val formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
 
-    val historyData = fetchSensorDataHistory(apiService, userId, today)
+    val historyData = fetchSensorDataHistory(apiService, user.id, today)
     statusHistory = historyData != null
     historyData?.forEach { sensorData ->
         if (sensorData.previous_weight != 0.0 && sensorData.previous_weight > sensorData.weight) {
@@ -64,7 +67,34 @@ suspend fun calculatePrediction(
         }
     }
 
-    val todayData = fetchTodaySensorData(apiService, userId, today)
+    var todayData: List<SensorData>? = emptyList()
+
+    if (user.waktu_mulai != null && user.waktu_selesai != null) {
+        val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val startTime = dateFormat.parse(user.waktu_mulai)!!
+        val endTime = dateFormat.parse(user.waktu_selesai)!!
+        val waktuSekarang = dateFormat.parse(dateFormat.format(Date()))!!
+
+        var from_date = LocalDate.now().format(formatter)
+        var to_date = LocalDate.now().plusDays(1).format(formatter)
+
+        if(startTime.time > endTime.time){
+            isBedaHari = true
+            if(waktuSekarang.time < endTime.time){
+                isBedaHari = false
+                from_date = LocalDate.now().minusDays(1).format(formatter)
+                to_date = LocalDate.now().format(formatter)
+            }
+        }
+
+        todayData = if (startTime.time > endTime.time) {
+            fetchTodaySensorData(apiService, user.id, from_date, to_date, user.waktu_mulai, user.waktu_selesai)
+        } else {
+            fetchTodaySensorData(apiService, user.id, from_date)
+        }
+    }
+
     todayData?.forEach { sensorData ->
         if (sensorData.previous_weight != 0.0 && sensorData.previous_weight > sensorData.weight) {
             val tanggal = convertUtcToWIB(sensorData.created_at, includeTime = true).toString()
@@ -89,26 +119,34 @@ suspend fun calculatePrediction(
     val waktuArrayToday = waktuListToday.toTypedArray()
     val minumArrayToday = minumListToday.toDoubleArray()
 
-    val lastTime = if (waktuArrayToday.isNotEmpty()) waktuArrayToday.last() else waktuMulai
+    val lastTime = if (waktuArrayToday.isNotEmpty()) {
+        waktuArrayToday.last()
+    } else if (waktuMulai != "")  {
+        waktuMulai
+    } else {
+        "00:00:00"
+    }
 
     val totalAktual = minumArrayToday.sum()
 
     if (
-        today != prediksiStore.datePrediksi ||
+        (waktuMulai != "" && waktuSelesai != "") &&
+        (today != prediksiStore.datePrediksi ||
         totalAktual != prediksiStore.totalAktual ||
         minumArray.last() != prediksiStore.minumAkhir ||
         waktuMulai != prediksiStore.waktuPredMulai ||
-        waktuSelesai != prediksiStore.waktuPredSelesai
+        waktuSelesai != prediksiStore.waktuPredSelesai)
     ) {
         if (minumArray.size >= 4){
-            val model = XGBoost()
+            val xgboost = XGBoost()
 
-            model.latihModel(tanggalArray, waktuArray, minumArray, maxIterasi = 10)
+            xgboost.latihModel(tanggalArray, waktuArray, minumArray, maxIterasi = 10)
 
-            val (prediksiAir, prediksiWaktu) = model.prediksi(
+            val (prediksiAir, prediksiWaktu) = xgboost.prediksi(
                 lastTime,
                 waktuSelesai,
-                tanggalArray.last()
+                tanggalArray.last(),
+                isBedaHari
             )!!
 
             totalPrediksi = prediksiAir.sum() + minumArrayToday.sum()
@@ -158,14 +196,11 @@ suspend fun calculatePrediction(
         }
     }
 
-    isNotif = true
-
     return PredictionResult(
         todayAktual = totalAktual,
         todayPrediksi = totalPrediksi,
         todayList = todayList,
         prediksiList = prediksiList,
-        statusHistory = statusHistory,
-        isNotif = isNotif
+        statusHistory = statusHistory
     )
 }

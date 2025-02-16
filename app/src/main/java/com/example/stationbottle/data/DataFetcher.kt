@@ -42,11 +42,18 @@ suspend fun fetchSensorDataHistory(
 suspend fun fetchTodaySensorData(
     apiService: ApiService,
     userId: Int,
-    today: String
+    today: String,
+    tommorow: String? = null,
+    waktuMulai: String? = null,
+    waktuSelesai: String? = null
 ): List<SensorData>? {
     return try {
         val todayData = retry(times = 3) {
-            apiService.getSensorData(today, today, userId)
+            if (tommorow != null && waktuMulai != null && waktuSelesai != null) {
+                apiService.getSensorData(today, tommorow, userId, waktuMulai, waktuSelesai)
+            } else {
+                apiService.getSensorData(today, today, userId)
+            }
         }
         todayData.data.filter {
             it.previous_weight != 0.0 && it.previous_weight > it.weight

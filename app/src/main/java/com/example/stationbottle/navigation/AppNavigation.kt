@@ -45,9 +45,9 @@ fun AppNavigation(onThemeChange: () -> Unit) {
         NavHost(
             navController = navController,
             startDestination = if (isLoggedIn.value) "home" else "login",
-            modifier = Modifier.padding(innerPadding) // Memberikan padding untuk konten
+            modifier = Modifier.padding(innerPadding)
         ) {
-            // Rute untuk otentikasi
+
             composable("login") { LoginScreen(navController) }
             composable("register") { RegisterScreen(navController) }
             composable("forgot_password") { ForgotPasswordScreen(navController) }
@@ -56,10 +56,9 @@ fun AppNavigation(onThemeChange: () -> Unit) {
                 ResetPasswordScreen(navController, email)
             }
 
-            // Rute untuk layar utama
-            composable("home") { HomeScreen(navController) }
-            composable("station") { StationScreen(navController) }
-            composable("history") { HistoryScreen(navController) }
+            composable("home") { HomeScreen() }
+            composable("station") { StationScreen() }
+            composable("history") { HistoryScreen() }
             composable("profile") {
                 ProfileScreen(
                     navController, onThemeChange = onThemeChange
@@ -83,7 +82,6 @@ fun BottomNavigationBar(
         BottomNavItem("Profile", R.drawable.outline_person_24, "profile")
     )
 
-    // Pantau perubahan rute saat ini
     val currentRoute = navController.currentBackStackEntryFlow.collectAsState(initial = null).value?.destination?.route
 
     NavigationBar(
@@ -101,12 +99,20 @@ fun BottomNavigationBar(
                 label = { Text(item.title) },
                 selected = currentRoute == item.route,
                 onClick = {
-                    navController.navigate(item.route) {
-                        popUpTo(navController.graph.startDestinationId) {
-                            saveState = true
+                    if (currentRoute == item.route) {
+                        navController.navigate(item.route) {
+                            popUpTo(item.route) {
+                                inclusive = true
+                            }
                         }
-                        launchSingleTop = true
-                        restoreState = true
+                    } else {
+                        navController.navigate(item.route) {
+                            popUpTo(navController.graph.startDestinationId) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 },
                 colors = NavigationBarItemDefaults.colors(

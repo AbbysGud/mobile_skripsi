@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">stationbottle</string>
+    <string name="app_name">Station Bottle</string>
     <string name="title_activity_login">Login</string>
     <string name="title_activity_app_navigation">AppNavigation</string>
 </resources>

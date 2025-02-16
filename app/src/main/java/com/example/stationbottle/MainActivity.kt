@@ -15,7 +15,6 @@ import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.ui.theme.AppTheme
 import com.example.stationbottle.navigation.AppNavigation
 
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

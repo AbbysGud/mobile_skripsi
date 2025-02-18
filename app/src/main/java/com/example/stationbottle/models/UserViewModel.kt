@@ -44,11 +44,14 @@ class UserViewModel : ViewModel() {
         userViewModel: UserViewModel,
         scope: CoroutineScope,
         onDialogMessageChange: (String) -> Unit,
-        onOpenDialogChange: (Boolean) -> Unit
+        onOpenDialogChange: (Boolean) -> Unit,
+        isLoading: (Boolean) -> Unit,
     ) {
         scope.launch {
             try {
+                isLoading(true)
                 val response = apiService.login(loginRequest)
+                isLoading(false)
                 if (response.isSuccessful) {
                     val loginResponse = response.body()
                     if (loginResponse != null) {
@@ -108,10 +111,17 @@ class UserViewModel : ViewModel() {
         }
     }
 
-    fun logoutUser(context: Context, token: String, navController: NavController) {
+    fun logoutUser(
+        context: Context,
+        token: String,
+        navController: NavController,
+        isLoading: (Boolean) -> Unit
+    ) {
         viewModelScope.launch {
             try {
+                isLoading(true)
                 val response = apiService.logout("Bearer $token")
+                isLoading(false)
                 if (response.isSuccessful) {
                     Log.i("Logout", "Logout Berhasil")
                     withContext(Dispatchers.Main) {
@@ -135,11 +145,14 @@ class UserViewModel : ViewModel() {
         navController: NavController,
         scope: CoroutineScope,
         onDialogMessageChange: (String) -> Unit,
-        onOpenDialogChange: (Boolean) -> Unit
+        onOpenDialogChange: (Boolean) -> Unit,
+        isLoading: (Boolean) -> Unit
     ) {
         scope.launch {
             try {
+                isLoading(true)
                 val response = apiService.register(registerRequest)
+                isLoading(false)
                 if (response.isSuccessful) {
                     val registerResponse = response.body()
                     if (registerResponse != null) {

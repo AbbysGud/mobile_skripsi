@@ -424,7 +424,12 @@ fun ProfileScreen(
 
                     Button(
                         onClick = {
-                            userViewModel.logoutUser(context, token.toString(), navController)
+                            userViewModel.logoutUser(
+                                context = context,
+                                token = token.toString(),
+                                navController = navController,
+                                isLoading = { loading -> isLoading = loading }
+                            )
                         },
                         modifier = Modifier.weight(1f),
                         shape = MaterialTheme.shapes.medium,

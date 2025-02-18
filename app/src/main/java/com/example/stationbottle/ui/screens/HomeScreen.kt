@@ -149,20 +149,25 @@ fun HomeScreen() {
             waktuMulai = it.waktu_mulai
             waktuSelesai = it.waktu_selesai
 
-            hasilPred = calculatePrediction(
-                context = context,
-                user = it,
-                waktuMulai = waktuMulai!!,
-                waktuSelesai = waktuSelesai!!,
-            )
+            if (
+                it.waktu_mulai != null && it.waktu_mulai != "" &&
+                it.waktu_selesai != null && it.waktu_selesai != ""
+            ){
+                hasilPred = calculatePrediction(
+                    context = context,
+                    user = it,
+                    waktuMulai = it.waktu_mulai,
+                    waktuSelesai = it.waktu_selesai,
+                )
 
-            totalAktual = hasilPred!!.todayAktual
-            totalPrediksi = hasilPred!!.todayPrediksi
-            todayList = hasilPred!!.todayList
-            prediksiList = hasilPred!!.prediksiList
-            statusHistory = hasilPred!!.statusHistory
+                hasilPred?.let {
+                    totalAktual = it.todayAktual
+                    totalPrediksi = it.todayPrediksi
+                    todayList = it.todayList
+                    prediksiList = it.prediksiList
+                    statusHistory = it.statusHistory
+                }
 
-            if(waktuMulai != "" && waktuSelesai != ""){
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
 

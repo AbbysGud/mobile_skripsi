@@ -172,7 +172,7 @@ fun StationScreen() {
 
                 if (isConnected == false) {
                     Text(
-                        text = "Belum Terhubung ke Sensor",
+                        text = "Belum Terhubung ke Server",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Normal
                     )

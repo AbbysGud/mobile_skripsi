@@ -45,10 +45,10 @@ class XGBoost {
 
         val epsilon = 1e-6
         for (iterasi in 1..maxIterasi) {
-            val rootAir = buatPohon(dataPoints.map { DataPoint(it.tanggal, it.minum, residualsAir[dataPoints.indexOf(it)], it.timeDifference) }, "Root Air")
+            val rootAir = buatPohon(dataPoints.map { DataPoint(it.tanggal, it.minum, residualsAir[dataPoints.indexOf(it)], it.timeDifference) })
             treesAir.add(rootAir)
 
-            val rootWaktu = buatPohon(dataPoints.map { DataPoint(it.tanggal, it.minum, residualsWaktu[dataPoints.indexOf(it)], it.timeDifference) }, "Root Waktu")
+            val rootWaktu = buatPohon(dataPoints.map { DataPoint(it.tanggal, it.minum, residualsWaktu[dataPoints.indexOf(it)], it.timeDifference) })
             treesWaktu.add(rootWaktu)
 
             val newResidualsAir = dataPoints.mapIndexed { index, point ->
@@ -74,7 +74,7 @@ class XGBoost {
         }
     }
 
-    private fun buatPohon(data: List<DataPoint>, side: String): TreeNode {
+    private fun buatPohon(data: List<DataPoint>): TreeNode {
         val rootSimilarity = hitungSimilarity(data.map { it.residual })
         val (bestThreshold, bestGain) = temukanThresholdTerbaik(data)
 
@@ -94,8 +94,8 @@ class XGBoost {
             similarity = rootSimilarity,
             threshold = bestThreshold,
             gain = bestGain,
-            left = buatPohon(leftData, "Kiri"),
-            right = buatPohon(rightData, "Kanan")
+            left = buatPohon(leftData),
+            right = buatPohon(rightData)
         )
     }
 

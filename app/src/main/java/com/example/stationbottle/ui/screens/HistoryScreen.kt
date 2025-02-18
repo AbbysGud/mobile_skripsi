@@ -44,7 +44,8 @@ fun HistoryScreen() {
     var totalPerDay = remember { linkedMapOf<String, Double>() }
 
     LaunchedEffect(user) {
-        if (user?.waktu_mulai != null && user.waktu_selesai != null) {
+        if (user?.waktu_mulai != null && user.waktu_selesai != null
+            && user.waktu_mulai != "" && user.waktu_selesai != "") {
             val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
             val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
             val startTime = dateFormat.parse(user.waktu_mulai)!!

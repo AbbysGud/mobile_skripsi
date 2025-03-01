@@ -42,6 +42,7 @@ fun BarchartWithSolidBars(todayList: Map<String, Double>) {
         .steps(yStepSize)
         .labelAndAxisLinePadding(20.dp)
         .axisOffset(20.dp)
+        .topPadding(40.dp)
         .labelData { index -> (index * (maxRange / yStepSize)).toString() }
         .axisLabelDescription { "Jumlah Minum (mL)" }
         .axisPosition(Gravity.LEFT)
@@ -58,7 +59,7 @@ fun BarchartWithSolidBars(todayList: Map<String, Double>) {
         ),
         showYAxis = true,
         showXAxis = true,
-        horizontalExtraSpace = 0.dp
+        horizontalExtraSpace = 40.dp
     )
 
     BarChart(

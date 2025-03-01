@@ -47,7 +47,9 @@ suspend fun calculatePrediction(
     var isBedaHari: Boolean = false
 
     val today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-    val formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+    val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
 
     val historyData = fetchSensorDataHistory(apiService, user.id, today)
     statusHistory = historyData != null
@@ -70,8 +72,6 @@ suspend fun calculatePrediction(
     var todayData: List<SensorData>? = emptyList()
 
     if (user.waktu_mulai != null && user.waktu_selesai != null) {
-        val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         val startTime = dateFormat.parse(user.waktu_mulai)!!
         val endTime = dateFormat.parse(user.waktu_selesai)!!
         val waktuSekarang = dateFormat.parse(dateFormat.format(Date()))!!
@@ -137,58 +137,78 @@ suspend fun calculatePrediction(
         waktuMulai != prediksiStore.waktuPredMulai ||
         waktuSelesai != prediksiStore.waktuPredSelesai)
     ) {
-        if (minumArray.size >= 4){
+        if (
+            minumArray.size >= 4 &&
+            user.waktu_mulai != null && user.waktu_mulai != "" &&
+            user.waktu_selesai != null && user.waktu_selesai != ""
+        ){
             val xgboost = XGBoost()
 
             xgboost.latihModel(tanggalArray, waktuArray, minumArray, maxIterasi = 10)
 
-            val (prediksiAir, prediksiWaktu) = xgboost.prediksi(
-                lastTime,
-                waktuSelesai,
-                tanggalArray.last(),
-                isBedaHari
-            )!!
+            val startTime = dateFormat.parse(user.waktu_mulai)
+            val endTime = dateFormat.parse(user.waktu_selesai)
+            val currentTime = dateFormat.parse(dateFormat.format(Date()))
 
-            totalPrediksi = prediksiAir.sum() + minumArrayToday.sum()
-
-            prediksiAir.forEach { minumListPrediksi.add(it) }
-
-            var currentTime = LocalTime.parse(lastTime, formatter)
-            prediksiWaktu.forEach { seconds ->
-                currentTime = currentTime.plusSeconds(seconds.toLong())
-                waktuListPrediksi.add(currentTime.format(formatter))
-            }
-
-            waktuListPrediksi.forEachIndexed { index, waktu ->
-                prediksiList[waktu] = minumListPrediksi[index]
-            }
-
-            UserDataStore.savePrediksi(
-                context,
-                prediksiStore.copy(
-                    waktuAkhir = waktuArray.last(),
-                    minumAkhir = minumArray.last(),
-                    prediksiWaktu = prediksiWaktu,
-                    prediksiMinum = prediksiAir,
-                    waktuPredMulai = waktuMulai.toString(),
-                    waktuPredSelesai = waktuSelesai.toString(),
-                    totalPrediksi = totalPrediksi,
-                    totalAktual = totalAktual,
-                    datePrediksi = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            if (
+                (
+                    startTime.time > endTime.time &&
+                    (currentTime.time > endTime.time || currentTime.time < startTime.time )
+                ) ||
+                (
+                    startTime.time < endTime.time &&
+                    (currentTime.time < endTime.time && currentTime.time > startTime.time)
                 )
-            )
+            ) {
+
+                val (prediksiAir, prediksiWaktu) = xgboost.prediksi(
+                    lastTime,
+                    waktuSelesai,
+                    tanggalArray.last(),
+                    isBedaHari
+                )!!
+
+                totalPrediksi = prediksiAir.sum() + minumArrayToday.sum()
+
+                prediksiAir.forEach { minumListPrediksi.add(it) }
+
+                var currentTime = LocalTime.parse(lastTime, timeFormatter)
+                prediksiWaktu.forEach { seconds ->
+                    currentTime = currentTime.plusSeconds(seconds.toLong())
+                    waktuListPrediksi.add(currentTime.format(timeFormatter))
+                }
+
+                waktuListPrediksi.forEachIndexed { index, waktu ->
+                    prediksiList[waktu] = minumListPrediksi[index]
+                }
+
+                UserDataStore.savePrediksi(
+                    context,
+                    prediksiStore.copy(
+                        waktuAkhir = waktuArray.last(),
+                        minumAkhir = minumArray.last(),
+                        prediksiWaktu = prediksiWaktu,
+                        prediksiMinum = prediksiAir,
+                        waktuPredMulai = waktuMulai.toString(),
+                        waktuPredSelesai = waktuSelesai.toString(),
+                        totalPrediksi = totalPrediksi,
+                        totalAktual = totalAktual,
+                        datePrediksi = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                    )
+                )
+            }
         }
     } else {
         totalPrediksi = prediksiStore.totalPrediksi ?: 0.0
 
         prediksiStore.prediksiMinum?.forEach { minumListPrediksi.add(it) }
 
-        var currentTime = LocalTime.parse(lastTime, formatter)
+        var currentTime = LocalTime.parse(lastTime, timeFormatter)
 
         prediksiStore.prediksiWaktu?.forEach { seconds ->
             currentTime = currentTime.plusSeconds(seconds.toLong())
 
-            waktuListPrediksi.add(currentTime.format(formatter))
+            waktuListPrediksi.add(currentTime.format(timeFormatter))
         }
 
         waktuListPrediksi.forEachIndexed { index, waktu ->

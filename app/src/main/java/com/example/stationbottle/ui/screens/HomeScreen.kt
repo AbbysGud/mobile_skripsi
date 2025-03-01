@@ -516,6 +516,7 @@ fun HomeScreen() {
                 Text(
                     text = "Perlu Data Prediksi Untuk Mendapatkan Tips",
                     fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
                     color = Color.Gray
                 )
             } else {
@@ -594,7 +595,7 @@ fun HomeScreen() {
                         verticalArrangement = Arrangement.Top,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                            .padding(horizontal = 16.dp),
                     ) {
                         Card(
                             modifier = Modifier
@@ -819,7 +820,7 @@ fun HomeScreen() {
                         verticalArrangement = Arrangement.Top,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                            .padding(horizontal = 16.dp),
                     ) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -831,6 +832,7 @@ fun HomeScreen() {
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(32.dp))
         }
 
         if (isLoading) {

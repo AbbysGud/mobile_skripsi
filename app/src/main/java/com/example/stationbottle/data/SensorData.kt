@@ -7,5 +7,6 @@ data class SensorData(
     val weight: Double,
     val previous_weight: Double,
     val created_at: String,
-    val updated_at: String
+    val updated_at: String,
+    val normalizedDiff: Double? = null
 )

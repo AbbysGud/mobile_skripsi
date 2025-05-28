@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -33,8 +34,11 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.stationbottle.R
 import com.example.stationbottle.data.PredictionResult
+import com.example.stationbottle.ui.screens.component.DatePickerOutlinedField
 import com.example.stationbottle.worker.NotificationWorker
 import com.example.stationbottle.worker.calculatePrediction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.time.Duration
 import java.time.LocalDate
@@ -47,7 +51,10 @@ import kotlin.math.ceil
 
 @SuppressLint("MutableCollectionMutableState")
 @Composable
-fun HomeScreen() {
+fun HomeScreen(
+    fromDate: String,
+    onFromDateChanged: (String) -> Unit
+) {
     var isLoading by remember { mutableStateOf(true) }
 
     val context = LocalContext.current
@@ -158,6 +165,7 @@ fun HomeScreen() {
                     user = it,
                     waktuMulai = it.waktu_mulai,
                     waktuSelesai = it.waktu_selesai,
+                    todayDate = fromDate
                 )
 
                 hasilPred?.let {
@@ -168,13 +176,13 @@ fun HomeScreen() {
                     statusHistory = it.statusHistory
                 }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-
-                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    onPermissionGranted()
-                }
+//                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+//                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+//
+//                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+//                } else {
+//                    onPermissionGranted()
+//                }
             }
 
             isLoading = false
@@ -195,6 +203,14 @@ fun HomeScreen() {
                 text = "Home Screen",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold
+            )
+
+            DatePickerOutlinedField(
+                label = "Data Hari",
+                date = fromDate,
+                onDateSelected = { selectedDate ->
+                    onFromDateChanged(selectedDate)
+                }
             )
 
             Spacer(modifier = Modifier.height(24.dp))

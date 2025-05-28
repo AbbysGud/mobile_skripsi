@@ -74,4 +74,5 @@ dependencies {
     implementation(libs.accompanist.permissions)
     implementation(libs.gson)
     implementation(libs.pusher.java.client)
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
 }

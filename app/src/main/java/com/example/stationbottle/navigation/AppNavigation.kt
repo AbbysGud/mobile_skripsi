@@ -6,7 +6,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,6 +22,8 @@ import androidx.navigation.compose.rememberNavController
 import com.example.stationbottle.models.UserViewModel
 import com.example.stationbottle.ui.screens.*
 import com.example.stationbottle.R
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 
 @Composable
@@ -30,6 +34,9 @@ fun AppNavigation(onThemeChange: () -> Unit) {
 
     val user by userViewModel.getUser(context).collectAsState(initial = null)
     val isLoggedIn = rememberSaveable { mutableStateOf(user != null) }
+
+
+    val fromDate = remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
 
     LaunchedEffect(user) {
         isLoggedIn.value = user != null
@@ -56,7 +63,16 @@ fun AppNavigation(onThemeChange: () -> Unit) {
                 ResetPasswordScreen(navController, email)
             }
 
-            composable("home") { HomeScreen() }
+            composable("home") {
+                key(fromDate.value){
+                    HomeScreen(
+                        fromDate = fromDate.value,
+                        onFromDateChanged = { newDate ->
+                            fromDate.value = newDate
+                        }
+                    )
+                }
+            }
             composable("station") { StationScreen() }
             composable("history") { HistoryScreen() }
             composable("profile") {

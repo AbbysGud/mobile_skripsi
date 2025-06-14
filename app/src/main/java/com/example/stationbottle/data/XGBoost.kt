@@ -37,7 +37,7 @@ data class DataPoint(
     val timeBucket: Int,
     val sinTimeBucket: Double,
     val cosTimeBucket: Double,
-//    val ordinalDate: Int,
+    val ordinalDate: Int,
     val sinTimeDayInteraction: Double,
     val cosTimeDayInteraction: Double,
     val isPuasa: Boolean,
@@ -45,7 +45,14 @@ data class DataPoint(
     val jamFreqZscore: Double,
     val jamFreqZscoreDecay: Double,
     val puasaTimeInteraction: Double,
-    val puasaDecayInteraction: Double
+    val puasaDecayInteraction: Double,
+    val sinDayHourInteraction: Double,
+    val cosDayHourInteraction: Double,
+    val sinHour: Double,
+    val cosHour: Double,
+    val isWeekend: Boolean,
+    val isMealTime: Boolean,
+    val mealType: Int
 )
 
 data class TreeNode(
@@ -81,234 +88,10 @@ class XGBoost(
     private var globalMinumPerJam = mutableMapOf<Int, MutableList<Double>>()
     private val RAMADAN_START = LocalDate.of(2025, 2, 28)
     private val RAMADAN_END = LocalDate.of(2025, 3, 31)
-    private lateinit var analysis: RawDataAnalysis
 
-    // Data class untuk menyimpan hasil analisis
-    data class RawDataAnalysis(
-        val last7DaysStats: Stats,
-        val last14DaysStats: Stats,
-        val suggestedDecayPeriod: Int,
-        val anomalyFlags: List<Boolean>,
-        val puasaEffect: Double
-    )
-
-    data class Stats(
-        val meanAir: Double,
-        val medianAir: Double,
-        val stdAir: Double,
-        val meanWaktu: Double,
-        val medianWaktu: Double,
-        val stdWaktu: Double,
-        val totalAir: Double,
-        val totalWaktu: Double
-    )
-
-    fun analyzeRawData(
-        tanggal: Array<String>,
-        jumlahAir: DoubleArray,
-        jumlahWaktu: DoubleArray
-    ): RawDataAnalysis {
-
-        val dailyData = mutableMapOf<LocalDate, Pair<MutableList<Double>, MutableList<Double>>>()
-
-        tanggal.forEachIndexed { index, tgl ->
-            val date = LocalDate.parse(tgl.substring(0, 10))
-            val air = jumlahAir[index]
-            val waktu = jumlahWaktu[index]
-
-            dailyData.getOrPut(date) { mutableListOf<Double>() to mutableListOf() }.apply {
-                first.add(air)
-                second.add(waktu)
-            }
-        }
-
-        val sortedDates = dailyData.keys.sorted()
-
-        val last7Days = sortedDates.takeLast(7)
-        val (air7, waktu7) = extractStats(last7Days, dailyData)
-
-        val last14Days = sortedDates.takeLast(14)
-        val (air14, waktu14) = extractStats(last14Days, dailyData)
-
-        val anomalies = detectAnomalies(jumlahAir, jumlahWaktu)
-
-        val puasaEffect = calculatePuasaEffect(tanggal, jumlahAir, jumlahWaktu)
-
-        val trendSlope7 = calculateTrendSlope(
-            last7Days.flatMap { dailyData[it]?.first ?: emptyList() }
-        )
-
-        val last7DaysSet = last7Days.toSet()
-        val last14DaysSet = last14Days.toSet()
-
-        val anomalyCount7 = anomalies.withIndex().count { (i, _) ->
-            LocalDate.parse(tanggal[i].substring(0, 10)) in last7DaysSet
-        }
-
-        val anomalyCount14 = anomalies.withIndex().count { (i, _) ->
-            LocalDate.parse(tanggal[i].substring(0, 10)) in last14DaysSet
-        }
-
-        val decayPeriod = determineDecayPeriod(
-            stats7 = air7,
-            stats14 = air14,
-            anomalyCount7 = anomalyCount7,
-            anomalyCount14 = anomalyCount14,
-            trendSlope7 = trendSlope7
-        )
-
-        return RawDataAnalysis(
-            last7DaysStats = Stats(
-                air7.mean, air7.median, air7.std,
-                waktu7.mean, waktu7.median, waktu7.std,
-                air7.total, waktu7.total
-            ),
-            last14DaysStats = Stats(
-                air14.mean, air14.median, air14.std,
-                waktu14.mean, waktu14.median, waktu14.std,
-                air14.total, waktu14.total
-            ),
-            suggestedDecayPeriod = decayPeriod,
-            anomalyFlags = anomalies,
-            puasaEffect = puasaEffect
-        )
-    }
-
-    private fun calculateTrendSlope(values: List<Double>): Double {
-        if (values.size < 2) return 0.0
-
-        val x = values.indices.map { it.toDouble() }
-        val y = values
-        val n = x.size.toDouble()
-
-        val sumX = x.sum()
-        val sumY = y.sum()
-        val sumXY = x.zip(y).sumOf { (xi, yi) -> xi * yi }
-        val sumX2 = x.sumOf { it.pow(2) }
-
-        val denominator = n * sumX2 - sumX.pow(2)
-        return if (denominator == 0.0) 0.0 else (n * sumXY - sumX * sumY) / denominator
-    }
-
-    private fun extractStats(
-        dates: List<LocalDate>,
-        data: Map<LocalDate, Pair<List<Double>, List<Double>>>
-    ): Pair<StatsData, StatsData> {
-        val airValues = dates.flatMap { data[it]?.first ?: emptyList() }
-        val waktuValues = dates.flatMap { data[it]?.second ?: emptyList() }
-
-        return Pair(
-            calculateBasicStats(airValues),
-            calculateBasicStats(waktuValues)
-        )
-    }
-
-    private data class StatsData(
-        val mean: Double,
-        val median: Double,
-        val std: Double,
-        val total: Double
-    )
-
-    private fun calculateBasicStats(values: List<Double>): StatsData {
-        if (values.isEmpty()) return StatsData(0.0, 0.0, 0.0, 0.0)
-
-        val sorted = values.sorted()
-        val mean = sorted.average()
-        val median = if (sorted.size % 2 == 0) {
-            (sorted[sorted.size/2 - 1] + sorted[sorted.size/2]) / 2
-        } else {
-            sorted[sorted.size/2]
-        }
-        val std = sqrt(sorted.sumOf { (it - mean).pow(2) } / sorted.size)
-        val total = sorted.sum()
-
-        return StatsData(mean, median, std, total)
-    }
-
-    private fun determineDecayPeriod(
-        stats7: StatsData,
-        stats14: StatsData,
-        anomalyCount7: Int,
-        anomalyCount14: Int,
-        trendSlope7: Double
-    ): Int {
-        return if (anomalyCount7 < anomalyCount14 / 2) 7 else 14
-//        // 1. Tren Kuat: Perubahan >5% dari rata-rata 7 hari
-//        val isStrongTrend = abs(trendSlope7) > (0.05 * stats7.mean)
-//
-//        // 2. Rasio Anomali: Perbandingan kepadatan anomali 7 vs 14 hari
-//        val anomalyRatio = anomalyCount7.toDouble() / (anomalyCount14 + 1)
-//
-//        println("7: $anomalyCount7 | 14: $anomalyCount14")
-//
-//        // 3. Variabilitas: Std deviasi & median tidak konsisten
-//        val isVolatile = (stats7.std > 1.2*stats14.std) &&
-//                (abs(stats7.median - stats14.median) > 0.1*stats14.median)
-//
-//        // Hierarki keputusan
-//        return when {
-//            // Prioritas 1: Tren kuat + perubahan mean >15%
-//            isStrongTrend && abs(stats7.mean - stats14.mean)/stats14.mean > 0.15 -> 7
-//
-//            // Prioritas 2: Anomali terkonsentrasi di 7 hari
-//            anomalyRatio > 2.0 -> 14
-//
-//            // Prioritas 3: Variabilitas tinggi
-//            isVolatile -> 7
-//
-//            // Default: Bandingkan total konsumsi
-//            else -> if (stats7.total > stats14.total * 0.6) 7 else 14
-//        }
-    }
-
-    private fun detectAnomalies(
-        air: DoubleArray,
-        waktu: DoubleArray
-    ): List<Boolean> {
-
-        fun robustZScore(values: DoubleArray): DoubleArray {
-            val median = values.sorted().let {
-                if (it.isEmpty()) 0.0
-                else if (it.size % 2 == 0) (it[it.size/2 - 1] + it[it.size/2])/2
-                else it[it.size/2]
-            }
-
-            val mad = values.map { abs(it - median) }.sorted().let {
-                if (it.isEmpty()) 0.0
-                else if (it.size % 2 == 0) (it[it.size/2 - 1] + it[it.size/2])/2
-                else it[it.size/2]
-            }
-
-            val scale = if (mad == 0.0) 1.0 else 1.4826 * mad
-            return DoubleArray(values.size) { i -> (values[i] - median) / scale }
-        }
-
-        val zAir = robustZScore(air)
-        val zWaktu = robustZScore(waktu)
-
-        return air.indices.map { i ->
-            abs(zAir[i]) > 3.5 || abs(zWaktu[i]) > 3.5
-        }
-    }
-
-    // Hitung efek puasa berdasarkan penurunan konsumsi
-    private fun calculatePuasaEffect(
-        tanggal: Array<String>,
-        jumlahAir: DoubleArray,
-        jumlahWaktu: DoubleArray
-    ): Double {
-        val (puasa, nonPuasa) = tanggal.indices.partition { i ->
-            jumlahWaktu[i] >= 12 * 3600
-        }
-
-        if (nonPuasa.isEmpty() || puasa.isEmpty()) return 0.0
-
-        val avgNonPuasa = nonPuasa.map { jumlahAir[it] }.average()
-        val avgPuasa = puasa.map { jumlahAir[it] }.average()
-
-        return if (avgNonPuasa == 0.0) 0.0 else (avgNonPuasa - avgPuasa) / avgNonPuasa
-    }
+    private val SARAPAN_RANGE = 6..9
+    private val MAKAN_SIANG_RANGE = 11..13
+    private val MAKAN_MALAM_RANGE = 17..20
 
     fun Collection<Double>.std(): Double {
         val mean = this.average()
@@ -334,64 +117,26 @@ class XGBoost(
             }
         }
 
-//        analysis = analyzeRawData(
-//            tanggal = tanggal,
-//            jumlahAir = jumlahAir,
-//            jumlahWaktu = jumlahWaktu.toDoubleArray()
-//        )
-
-//        println("""
-//            Analisis Data Mentah:
-//            - Periode Dekay Disarankan: ${analysis.suggestedDecayPeriod} hari
-//            - Rata-rata 7 Hari Terakhir:
-//                Air: ${analysis.last7DaysStats.meanAir} ml | ${analysis.last7DaysStats.stdAir}
-//                Waktu: ${analysis.last7DaysStats.meanWaktu} detik | ${analysis.last7DaysStats.stdWaktu}
-//            - Rata-rata 14 Hari Terakhir:
-//                Air: ${analysis.last14DaysStats.meanAir} ml | ${analysis.last14DaysStats.stdAir}
-//                Waktu: ${analysis.last14DaysStats.meanWaktu} detik | ${analysis.last14DaysStats.stdWaktu}
-//            - Total Air 14 Hari: ${analysis.last14DaysStats.totalAir} ml
-//            - Efek Puasa: ${analysis.puasaEffect * 100}% penurunan
-//            - Anomali Terdeteksi: ${analysis.anomalyFlags.count { it }} titik data
-//        """)
-
         globalMinumPerJam = minumPerJam
 
         val entryCounts = minumPerJam.mapValues { it.value.size }
-//
-//        val countsSorted = entryCounts.values.sorted()
-//        val n = countsSorted.size
-//
-//        val idxQ70 = ceil(0.70 * n).toInt().coerceAtMost(n - 1) - 1
-//        val idxQ90 = ceil(0.90 * n).toInt().coerceAtMost(n - 1) - 1
-//
-//        val q70 = countsSorted.getOrElse(idxQ70) { countsSorted.last() }
-//        val q90 = countsSorted.getOrElse(idxQ90) { countsSorted.last() }
-//
-//        val jamCategories = entryCounts.mapValues { (_, count) ->
-//            when {
-//                count >= q90       -> 2
-//                count >= q70       -> 1
-//                else               -> 0
-//            }
-//        }
-//
-//        val totalEntries = entryCounts.values.sum().toDouble()
+
         val meanFreq = entryCounts.values.average()
         val stdFreq = entryCounts.values.map { (it - meanFreq).pow(2) }.average().let { sqrt(it) }
 
         val jamFreqZscore = entryCounts.mapValues { (it.value - meanFreq) / (stdFreq + 1e-6) }
 
-//        val weights = analysis.suggestedDecayPeriod
-//        val divider = if(weights == 7) 1 else 2
-        val weights = 7
-        val divider = 1
+        val weights = 14
+        val divider = 2
         val decayWeights = List(weights) { exp(-it.toDouble() / divider) }
+
+        val lastDate = tanggal.maxOf { LocalDate.parse(it.substring(0, 10)) }
 
         val jamFreqWithDecay = mutableMapOf<Int, Double>().apply {
             tanggal.forEachIndexed { i, tgl ->
                 val hariKe = ChronoUnit.DAYS.between(
                     LocalDate.parse(tgl.substring(0, 10)),
-                    LocalDate.now()
+                    lastDate
                 ).toInt()
 
                 val weight = decayWeights.getOrElse(hariKe.coerceIn(0, weights - 1)) { 0.0 }
@@ -399,11 +144,6 @@ class XGBoost(
                 this[jam] = this.getOrDefault(jam, 0.0) + weight
             }
         }
-
-//        val sorted = jamFreqWithDecay.values.sorted()
-//        val trimmed = sorted.drop(5).take(sorted.size - 10)
-//        val meanDecay = trimmed.average()
-//        val stdDecay = trimmed.std()
 
         val meanDecay = jamFreqWithDecay.values.average()
         val stdDecay = jamFreqWithDecay.values.run {
@@ -418,13 +158,22 @@ class XGBoost(
             val hour = LocalTime.ofSecondOfDay(waktuDetik[it].toLong()).hour
             val dayOfWeek = localDate.dayOfWeek.value
 
+//            val timeBucket = when (hour) {
+//                in 0..4 -> 0
+//                in 5..8 -> 1
+//                in 9..11 -> 2
+//                in 12..15 -> 3
+//                in 16..19 -> 4
+//                in 20..23 -> 5
+//                else -> -1
+//            }
+
             val timeBucket = when (hour) {
                 in 0..4 -> 0
-                in 5..8 -> 1
-                in 9..11 -> 2
-                in 12..15 -> 3
-                in 16..19 -> 4
-                in 20..23 -> 5
+                in 5..9 -> 1
+                in 10..14 -> 2
+                in 15..19 -> 3
+                in 20..23 -> 4
                 else -> -1
             }
 
@@ -432,13 +181,13 @@ class XGBoost(
             val sinTimeDayInteraction = sin(2 * Math.PI * timeDayInteraction / (6*7))
             val cosTimeDayInteraction = cos(2 * Math.PI * timeDayInteraction / (6*7))
 
-            val isPuasa: Boolean = jumlahWaktu[it] > 12 * 3600 && jumlahWaktu[it] != 0.0
+//            val isPuasa: Boolean = jumlahWaktu[it] > 12 * 3600 && jumlahWaktu[it] != 0.0
 
-//            val isPuasa = (
-//                    !localDate.isBefore(RAMADAN_START) && !localDate.isAfter(RAMADAN_END)
-//                ) || (
-//                    jumlahWaktu[it] > 12 * 3600 && jumlahWaktu[it] != 0.0
-//                )
+            val isPuasa = (
+                    !localDate.isBefore(RAMADAN_START) && !localDate.isAfter(RAMADAN_END)
+                ) || (
+                    jumlahWaktu[it] > 12 * 3600 && jumlahWaktu[it] != 0.0
+                )
 
             val puasaTimeInteraction: Double = if (isPuasa) {
                 when (timeBucket) {
@@ -459,6 +208,27 @@ class XGBoost(
 
             val freqZscoreDecay = jamFreqZscoreDecay[hour] ?: 0.0
 
+            val dayHourInteraction = dayOfWeek * hour
+
+            val sinDayHourInteraction = sin(2 * Math.PI * dayHourInteraction / (7*24))
+            val cosDayHourInteraction = cos(2 * Math.PI * dayHourInteraction / (7*24))
+
+            val sinHour = sin(2 * Math.PI * hour / 24)
+            val cosHour = cos(2 * Math.PI * hour / 24)
+
+            val isWeekend = (dayOfWeek == 6 || dayOfWeek == 7)
+
+            val isSarapan = hour in SARAPAN_RANGE
+            val isMakanSiang = hour in MAKAN_SIANG_RANGE
+            val isMakanMalam = hour in MAKAN_MALAM_RANGE
+
+            val mealType = when {
+                isSarapan -> 1
+                isMakanSiang -> 2
+                isMakanMalam -> 3
+                else -> 0
+            }
+
             DataPoint(
                 tanggal = tanggal[it],
                 air = jumlahAir[it],
@@ -468,17 +238,25 @@ class XGBoost(
                 sinDayOfWeek = sin(2 * Math.PI * dayOfWeek / 7),
                 cosDayOfWeek = cos(2 * Math.PI * dayOfWeek / 7),
                 timeBucket = timeBucket,
-                sinTimeBucket = sin(2 * Math.PI * timeBucket / 6),
-                cosTimeBucket = cos(2 * Math.PI * timeBucket / 6),
-//                ordinalDate = localDate.toEpochDay().toInt(),
+//                sinTimeBucket = sin(2 * Math.PI * timeBucket / 6),
+//                cosTimeBucket = cos(2 * Math.PI * timeBucket / 6),
+                sinTimeBucket = sin(2 * Math.PI * timeBucket / 5),
+                cosTimeBucket = cos(2 * Math.PI * timeBucket / 5),
                 sinTimeDayInteraction = sinTimeDayInteraction,
                 cosTimeDayInteraction = cosTimeDayInteraction,
                 isPuasa = isPuasa,
-//                jamCategory = jamCategory,
                 jamFreqZscore = freqZscore,
                 jamFreqZscoreDecay = freqZscoreDecay,
                 puasaTimeInteraction = puasaTimeInteraction,
-                puasaDecayInteraction = puasaDecayInteraction
+                puasaDecayInteraction = puasaDecayInteraction,
+                ordinalDate = localDate.toEpochDay().toInt(),
+                sinDayHourInteraction = sinDayHourInteraction,
+                cosDayHourInteraction = cosDayHourInteraction,
+                sinHour = sinHour,
+                cosHour = cosHour,
+                isWeekend = isWeekend,
+                isMealTime = isSarapan || isMakanSiang || isMakanMalam,
+                mealType = mealType
             )
         }
 
@@ -599,16 +377,21 @@ class XGBoost(
     ): SplitResult? {
         val features = listOf(
 //            "ordinalDate",
-            "sinDayOfWeek", "cosDayOfWeek",
+//            "sinDayOfWeek", "cosDayOfWeek",
 //            "sinTimeBucket", "cosTimeBucket",
-//            "sinTimeDayInteraction", "cosTimeDayInteraction",
+            "sinTimeDayInteraction", "cosTimeDayInteraction",
 //            "isPuasa",
-//            "jamCategory",
 //            "jamFreqZscore",
             "jamFreqZscoreDecay",
 //            "puasaTimeInteraction",
-//            "puasaDecayInteraction"
+//            "puasaDecayInteraction",
+            "sinDayHourInteraction", "cosDayHourInteraction",
+//            "sinHour", "cosHour",
+//            "isWeekend",
+//            "isMealTime",
+//            "mealType"
         )
+
         var best: SplitResult? = null
 
         for (feature in features) {
@@ -640,7 +423,7 @@ class XGBoost(
         feature: String
     ): Double {
         return when (feature) {
-//            "ordinalDate" -> dp.ordinalDate.toDouble()
+            "ordinalDate" -> dp.ordinalDate.toDouble()
             "sinTimeBucket" -> dp.sinTimeBucket
             "cosTimeBucket" -> dp.cosTimeBucket
             "sinDayOfWeek" -> dp.sinDayOfWeek
@@ -653,6 +436,13 @@ class XGBoost(
             "jamFreqZscoreDecay" -> dp.jamFreqZscoreDecay
             "puasaTimeInteraction" -> dp.puasaTimeInteraction
             "puasaDecayInteraction" -> dp.puasaDecayInteraction
+            "sinDayHourInteraction" -> dp.sinDayHourInteraction
+            "cosDayHourInteraction" -> dp.cosDayHourInteraction
+            "sinHour" -> dp.sinHour
+            "cosHour" -> dp.cosHour
+            "isWeekend" -> if (dp.isWeekend) 1.0 else 0.0
+            "isMealTime" -> if (dp.isMealTime) 1.0 else 0.0
+            "mealType" -> dp.mealType.toDouble()
             else -> error("Fitur tidak dikenali: $feature")
         }
     }
@@ -684,129 +474,147 @@ class XGBoost(
         var end = LocalTime.parse(batasWaktu).toSecondOfDay().toDouble()
         if (bedaHari) end += 86400
 
-        val localDate = LocalDate.parse(tanggal.substring(0,10))
-        val hour = LocalTime.ofSecondOfDay(start.toLong()).hour
-        val dayOfWeek = localDate.dayOfWeek.value
+        val predictionsAir = mutableListOf<Double>()
+        val predictionsTime = mutableListOf<Double>()
 
-        val timeBucket = when (hour) {
-            in 0..4 -> 0
-            in 5..8 -> 1
-            in 9..11 -> 2
-            in 12..15 -> 3
-            in 16..19 -> 4
-            in 20..23 -> 5
-            else -> -1
-        }
+        var currentTime = start
+        while (currentTime < end) {
 
-        val timeDayInteraction = timeBucket * dayOfWeek
-        val sinTimeDayInteraction = sin(2 * Math.PI * timeDayInteraction / (6*7))
-        val cosTimeDayInteraction = cos(2 * Math.PI * timeDayInteraction / (6*7))
+            val localDate = LocalDate.parse(tanggal.substring(0,10))
+            val hour = LocalTime.ofSecondOfDay(currentTime.toLong()).hour
+            val dayOfWeek = localDate.dayOfWeek.value
 
-        val entryCounts = globalMinumPerJam.mapValues { it.value.size }
-//
-//        val countsSorted = entryCounts.values.sorted()
-//        val n = countsSorted.size
-//
-//        val idxQ70 = ceil(0.70 * n).toInt().coerceAtMost(n - 1) - 1
-//        val idxQ90 = ceil(0.90 * n).toInt().coerceAtMost(n - 1) - 1
-//
-//        val q70 = countsSorted.getOrElse(idxQ70) { countsSorted.last() }
-//        val q90 = countsSorted.getOrElse(idxQ90) { countsSorted.last() }
-//
-//        val jamCategories = entryCounts.mapValues { (_, count) ->
-//            when {
-//                count >= q90       -> 2
-//                count >= q70       -> 1
-//                else               -> 0
+//            val timeBucket = when (hour) {
+//                in 0..4 -> 0
+//                in 5..8 -> 1
+//                in 9..11 -> 2
+//                in 12..15 -> 3
+//                in 16..19 -> 4
+//                in 20..23 -> 5
+//                else -> -1
 //            }
-//        }
-//
-//        val jamCategory: Int = jamCategories[hour] ?: -1
-//
-//        val totalEntries = entryCounts.values.sum().toDouble()
-        val meanFreq = entryCounts.values.average()
-        val stdFreq = entryCounts.values.map { (it - meanFreq).pow(2) }.average().let { sqrt(it) }
 
-        val jamFreqZscore = entryCounts.mapValues { (it.value - meanFreq) / (stdFreq + 1e-6) }
-
-        val freqZscore = jamFreqZscore[hour] ?: 0.0
-
-//        val weights = analysis.suggestedDecayPeriod
-//        val divider = if(weights == 7) 1 else 2
-        val weights = 7
-        val divider = 1
-        val decayWeights = List(weights) { exp(-it.toDouble() / divider) }
-        val jamFreqWithDecay = mutableMapOf<Int, Double>().apply {
-            globalMinumPerJam.forEach { (jam, records) ->
-                val totalDecay = records.mapIndexed { i, _ ->
-                    decayWeights.getOrElse(i.coerceAtMost(weights - 1)) { 0.0 }
-                }.sum()
-                this[jam] = totalDecay
+            val timeBucket = when (hour) {
+                in 0..4 -> 0
+                in 5..9 -> 1
+                in 10..14 -> 2
+                in 15..19 -> 3
+                in 20..23 -> 4
+                else -> -1
             }
-        }
 
-//        val sorted = jamFreqWithDecay.values.sorted()
-//        val trimmed = sorted.drop(5).take(sorted.size - 10)
-//        val meanDecay = trimmed.average()
-//        val stdDecay = trimmed.std()
+            val timeDayInteraction = timeBucket * dayOfWeek
+            val sinTimeDayInteraction = sin(2 * Math.PI * timeDayInteraction / (6*7))
+            val cosTimeDayInteraction = cos(2 * Math.PI * timeDayInteraction / (6*7))
 
-        val meanDecay = jamFreqWithDecay.values.average()
-        val stdDecay = jamFreqWithDecay.values.std()
-        val jamFreqZscoreDecay = jamFreqWithDecay[hour]?.let {
-            (it - meanDecay) / (stdDecay + 1e-6)
-        } ?: 0.0
+            val entryCounts = globalMinumPerJam.mapValues { it.value.size }
 
-        val isPuasa = false
+            val meanFreq = entryCounts.values.average()
+            val stdFreq = entryCounts.values.map { (it - meanFreq).pow(2) }.average().let { sqrt(it) }
 
-        val puasaTimeInteraction: Double = if (isPuasa) {
-            when (timeBucket) {
-                0 -> 0.7  // Sahur
-                4 -> 1.2  // Buka puasa
-                5 -> 0.9  // Tarawih
-                else -> 0.3
+            val jamFreqZscore = entryCounts.mapValues { (it.value - meanFreq) / (stdFreq + 1e-6) }
+
+            val freqZscore = jamFreqZscore[hour] ?: 0.0
+
+            val weights = 14
+            val divider = 2
+            val decayWeights = List(weights) { exp(-it.toDouble() / divider) }
+            val jamFreqWithDecay = mutableMapOf<Int, Double>().apply {
+                globalMinumPerJam.forEach { (jam, records) ->
+                    val totalDecay = records.mapIndexed { i, _ ->
+                        decayWeights.getOrElse(i.coerceAtMost(weights - 1)) { 0.0 }
+                    }.sum()
+                    this[jam] = totalDecay
+                }
             }
-        } else {
-            0.0
+
+            val meanDecay = jamFreqWithDecay.values.average()
+            val stdDecay = jamFreqWithDecay.values.std()
+            val jamFreqZscoreDecay = jamFreqWithDecay[hour]?.let {
+                (it - meanDecay) / (stdDecay + 1e-6)
+            } ?: 0.0
+
+            val isPuasa = false
+
+            val puasaTimeInteraction: Double = if (isPuasa) {
+                when (timeBucket) {
+                    0 -> 0.7  // Sahur
+                    4 -> 1.2  // Buka puasa
+                    5 -> 0.9  // Tarawih
+                    else -> 0.3
+                }
+            } else {
+                0.0
+            }
+
+            val puasaDecayInteraction: Double = jamFreqZscoreDecay.times((if (isPuasa) 1.5 else 0.8)) ?: 0.0
+
+            val dayHourInteraction = dayOfWeek * hour
+            val sinDayHourInteraction = sin(2 * Math.PI * dayHourInteraction / (7*24))
+            val cosDayHourInteraction = cos(2 * Math.PI * dayHourInteraction / (7*24))
+
+            val sinHour = sin(2 * Math.PI * hour / 24)
+            val cosHour = cos(2 * Math.PI * hour / 24)
+
+            val isWeeekend = (dayOfWeek == 6 || dayOfWeek == 7)
+
+            val isSarapan = hour in SARAPAN_RANGE
+            val isMakanSiang = hour in MAKAN_SIANG_RANGE
+            val isMakanMalam = hour in MAKAN_MALAM_RANGE
+
+            val mealType = when {
+                isSarapan -> 1
+                isMakanSiang -> 2
+                isMakanMalam -> 3
+                else -> 0
+            }
+
+            val dp = DataPoint(
+                tanggal = tanggal,
+                air = 0.0,
+                waktuDetik = currentTime,
+                durasi = 0.0,
+                dayOfWeek = dayOfWeek,
+                sinDayOfWeek = sin(2 * Math.PI * dayOfWeek / 7),
+                cosDayOfWeek = cos(2 * Math.PI * dayOfWeek / 7),
+                timeBucket = timeBucket,
+//                sinTimeBucket = sin(2 * Math.PI * timeBucket / 6),
+//                cosTimeBucket = cos(2 * Math.PI * timeBucket / 6),
+                sinTimeBucket = sin(2 * Math.PI * timeBucket / 5),
+                cosTimeBucket = cos(2 * Math.PI * timeBucket / 5),
+                ordinalDate = localDate.toEpochDay().toInt(),
+                sinTimeDayInteraction = sinTimeDayInteraction,
+                cosTimeDayInteraction = cosTimeDayInteraction,
+                isPuasa = isPuasa,
+        //            jamCategory = jamCategory,
+                jamFreqZscore = freqZscore,
+                jamFreqZscoreDecay = jamFreqZscoreDecay,
+                puasaTimeInteraction = puasaTimeInteraction,
+                puasaDecayInteraction = puasaDecayInteraction,
+                sinDayHourInteraction = sinDayHourInteraction,
+                cosDayHourInteraction = cosDayHourInteraction,
+                sinHour = sinHour,
+                cosHour = cosHour,
+                isWeekend = isWeeekend,
+                isMealTime = isSarapan || isMakanSiang || isMakanMalam,
+                mealType = mealType
+            )
+
+            var predAir = basePredictionAir + treesAir.sumOf { tree ->
+                learningRate * predictTree(tree, dp)
+            }
+
+            var predWaktu = basePredictionWaktu + treesWaktu.sumOf { tree ->
+                learningRate * predictTree(tree, dp)
+            }
+
+            predictionsAir.add(predAir)
+            predictionsTime.add(predWaktu)
+
+            currentTime += predWaktu // Update waktu untuk prediksi berikutnya
         }
 
-        val puasaDecayInteraction: Double = jamFreqZscoreDecay.times((if (isPuasa) 1.5 else 0.8)) ?: 0.0
-
-        val dp = DataPoint(
-            tanggal = tanggal,
-            air = 0.0,
-            waktuDetik = start,
-            durasi = 0.0,
-            dayOfWeek = dayOfWeek,
-            sinDayOfWeek = sin(2 * Math.PI * dayOfWeek / 7),
-            cosDayOfWeek = cos(2 * Math.PI * dayOfWeek / 7),
-            timeBucket = timeBucket,
-            sinTimeBucket = sin(2 * Math.PI * timeBucket / 6),
-            cosTimeBucket = cos(2 * Math.PI * timeBucket / 6),
-//            ordinalDate = localDate.toEpochDay().toInt(),
-            sinTimeDayInteraction = sinTimeDayInteraction,
-            cosTimeDayInteraction = cosTimeDayInteraction,
-            isPuasa = isPuasa,
-//            jamCategory = jamCategory,
-            jamFreqZscore = freqZscore,
-            jamFreqZscoreDecay = jamFreqZscoreDecay,
-            puasaTimeInteraction = puasaTimeInteraction,
-            puasaDecayInteraction = puasaDecayInteraction
-        )
-
-        var predAir = basePredictionAir + treesAir.sumOf { tree ->
-            learningRate * predictTree(tree, dp)
-        }
-
-        var predWaktu = basePredictionWaktu + treesWaktu.sumOf { tree ->
-            learningRate * predictTree(tree, dp)
-        }
-
-        if (predWaktu <= 0) {
-            predWaktu = basePredictionWaktu
-        }
-
-        val steps = ((end - start) / predWaktu).toInt()
-        return DoubleArray(steps) { predAir } to Array(steps) { predWaktu }
+        return predictionsAir.toDoubleArray() to predictionsTime.toTypedArray()
     }
 
     private fun delta(old: List<Double>, predicted: List<Double>): Double {
@@ -821,6 +629,12 @@ class XGBoost(
 
         val actualVals = actual.values.toList()
         val predVals = predicted.values.toList()
+
+//        actual.keys.forEachIndexed { index, key ->
+//            val actualVal = actual[key]
+//            val predVal = predicted[key]
+//            println("Tanggal: $key | Actual: $actualVal | Predicted: ${predVal ?: "N/A"}")
+//        }
 
         val mae = actualVals.zip(predVals).sumOf { abs(it.first - it.second) } / actualVals.size
         val rmse = sqrt(actualVals.zip(predVals).sumOf { (a, p) -> (a - p).pow(2) } / actualVals.size)

@@ -25,6 +25,12 @@ import kotlin.math.sqrt
 import kotlin.text.get
 import kotlin.text.substring
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+val Json = Json { prettyPrint = true }
+
+@Serializable
 data class DataPoint(
     val tanggal: String,
     val air: Double,
@@ -55,6 +61,31 @@ data class DataPoint(
     val mealType: Int
 )
 
+@Serializable
+data class SerializableTreeNode(
+    val residuals: List<Double>,
+    val similarity: Double,
+    val isLeaf: Boolean = false,
+    val feature: String? = null,
+    val thresholdNumeric: Double? = null,
+    val gain: Double? = null,
+    val left: SerializableTreeNode? = null,
+    val right: SerializableTreeNode? = null
+)
+
+@Serializable
+data class SerializableXGBoostModel(
+    val maxDepth: Int,
+    val gamma: Double,
+    val lambda: Double,
+    val learningRate: Double,
+    val basePredictionAir: Double,
+    val basePredictionWaktu: Double,
+    val treesAir: List<SerializableTreeNode>,
+    val treesWaktu: List<SerializableTreeNode>,
+    val globalMinumPerJam: Map<Int, List<Double>>
+)
+
 data class TreeNode(
     val residuals: List<Double>,
     val similarity: Double,
@@ -73,18 +104,22 @@ data class EvaluationMetrics(
     val r2: Double
 )
 
+data class TrainingEvaluationResults(
+    val airMetrics: EvaluationMetrics,
+    val waktuMetrics: EvaluationMetrics
+)
+
 class XGBoost(
     private val maxDepth: Int,
     private val gamma: Double,
     private val lambda: Double,
-    private val learningRate: Double,
-    private val idUser: Int
+    private val learningRate: Double
 ) {
-    private var basePredictionAir = 0.0
-    private var basePredictionWaktu = 0.0
-    private val treesAir = mutableListOf<TreeNode>()
-    private val treesWaktu = mutableListOf<TreeNode>()
-    private val decimalFormat = DecimalFormat("#.##", DecimalFormatSymbols(Locale.US))
+    var basePredictionAir = 0.0
+    var basePredictionWaktu = 0.0
+    val treesAir = mutableListOf<TreeNode>()
+    val treesWaktu = mutableListOf<TreeNode>()
+
     private var globalMinumPerJam = mutableMapOf<Int, MutableList<Double>>()
     private val RAMADAN_START = LocalDate.of(2025, 2, 28)
     private val RAMADAN_END = LocalDate.of(2025, 3, 31)
@@ -92,6 +127,26 @@ class XGBoost(
     private val SARAPAN_RANGE = 6..9
     private val MAKAN_SIANG_RANGE = 11..13
     private val MAKAN_MALAM_RANGE = 17..20
+
+    private val DECAY_WEIGHTS = 7
+    private val DECAY_DIVIDER = 1
+
+    private val features = listOf(
+//        "ordinalDate",
+//        "sinDayOfWeek", "cosDayOfWeek",
+//        "sinTimeBucket", "cosTimeBucket",
+        "sinTimeDayInteraction", "cosTimeDayInteraction",
+//        "isPuasa",
+//        "jamFreqZscore",
+        "jamFreqZscoreDecay",
+//        "puasaTimeInteraction",
+//        "puasaDecayInteraction",
+        "sinDayHourInteraction", "cosDayHourInteraction",
+//        "sinHour", "cosHour",
+//        "isWeekend",
+//        "isMealTime",
+//        "mealType"
+    )
 
     fun Collection<Double>.std(): Double {
         val mean = this.average()
@@ -104,7 +159,7 @@ class XGBoost(
         jumlahAir: DoubleArray,
         minumPerJam: MutableMap<Int, MutableList<Double>>,
         maxIterasi: Int
-    ) {
+    ): TrainingEvaluationResults? {
 
         val waktuDetik = waktu.map {
             LocalTime.parse(it).toSecondOfDay().toDouble()
@@ -117,7 +172,7 @@ class XGBoost(
             }
         }
 
-        globalMinumPerJam = minumPerJam
+        this.globalMinumPerJam = minumPerJam
 
         val entryCounts = minumPerJam.mapValues { it.value.size }
 
@@ -126,9 +181,7 @@ class XGBoost(
 
         val jamFreqZscore = entryCounts.mapValues { (it.value - meanFreq) / (stdFreq + 1e-6) }
 
-        val weights = 14
-        val divider = 2
-        val decayWeights = List(weights) { exp(-it.toDouble() / divider) }
+        val decayWeights = List(DECAY_WEIGHTS) { exp(-it.toDouble() / DECAY_DIVIDER) }
 
         val lastDate = tanggal.maxOf { LocalDate.parse(it.substring(0, 10)) }
 
@@ -139,7 +192,7 @@ class XGBoost(
                     lastDate
                 ).toInt()
 
-                val weight = decayWeights.getOrElse(hariKe.coerceIn(0, weights - 1)) { 0.0 }
+                val weight = decayWeights.getOrElse(hariKe.coerceIn(0, DECAY_WEIGHTS - 1)) { 0.0 }
                 val jam = LocalTime.parse(waktu[i]).hour
                 this[jam] = this.getOrDefault(jam, 0.0) + weight
             }
@@ -158,16 +211,6 @@ class XGBoost(
             val hour = LocalTime.ofSecondOfDay(waktuDetik[it].toLong()).hour
             val dayOfWeek = localDate.dayOfWeek.value
 
-//            val timeBucket = when (hour) {
-//                in 0..4 -> 0
-//                in 5..8 -> 1
-//                in 9..11 -> 2
-//                in 12..15 -> 3
-//                in 16..19 -> 4
-//                in 20..23 -> 5
-//                else -> -1
-//            }
-
             val timeBucket = when (hour) {
                 in 0..4 -> 0
                 in 5..9 -> 1
@@ -181,19 +224,17 @@ class XGBoost(
             val sinTimeDayInteraction = sin(2 * Math.PI * timeDayInteraction / (6*7))
             val cosTimeDayInteraction = cos(2 * Math.PI * timeDayInteraction / (6*7))
 
-//            val isPuasa: Boolean = jumlahWaktu[it] > 12 * 3600 && jumlahWaktu[it] != 0.0
-
             val isPuasa = (
                     !localDate.isBefore(RAMADAN_START) && !localDate.isAfter(RAMADAN_END)
-                ) || (
+                    ) || (
                     jumlahWaktu[it] > 12 * 3600 && jumlahWaktu[it] != 0.0
-                )
+                    )
 
             val puasaTimeInteraction: Double = if (isPuasa) {
                 when (timeBucket) {
                     0 -> 0.7  // Sahur
-                    4 -> 1.2  // Buka puasa
-                    5 -> 0.9  // Tarawih
+                    3 -> 1.2  // Buka puasa
+                    4 -> 0.9  // Tarawih
                     else -> 0.3
                 }
             } else {
@@ -201,8 +242,6 @@ class XGBoost(
             }
 
             val puasaDecayInteraction: Double = jamFreqZscoreDecay[hour]?.times((if (isPuasa) 1.5 else 0.8)) ?: 0.0
-
-//            val jamCategory: Int = jamCategories[hour] ?: -1
 
             val freqZscore: Double = jamFreqZscore[hour] ?: 0.0
 
@@ -238,8 +277,6 @@ class XGBoost(
                 sinDayOfWeek = sin(2 * Math.PI * dayOfWeek / 7),
                 cosDayOfWeek = cos(2 * Math.PI * dayOfWeek / 7),
                 timeBucket = timeBucket,
-//                sinTimeBucket = sin(2 * Math.PI * timeBucket / 6),
-//                cosTimeBucket = cos(2 * Math.PI * timeBucket / 6),
                 sinTimeBucket = sin(2 * Math.PI * timeBucket / 5),
                 cosTimeBucket = cos(2 * Math.PI * timeBucket / 5),
                 sinTimeDayInteraction = sinTimeDayInteraction,
@@ -270,6 +307,8 @@ class XGBoost(
         var currentPredWaktu = DoubleArray(jumlahWaktu.size) { basePredictionWaktu }
 
         val epsilon = 1e-8
+        var finalTrainingResults: TrainingEvaluationResults? = null
+
         repeat(maxIterasi) { iter ->
 
             val residualsAir = jumlahAir.mapIndexed { i, actual ->
@@ -297,33 +336,38 @@ class XGBoost(
                 currentPredWaktu[i] += learningRate * predictTree(treeWaktu, dp)
             }
 
-//            if (iter % 10 == 0 || iter == maxIterasi - 1) {
-//                val predictedAir = dataPoints.map { dp ->
-//                    basePredictionAir + treesAir.sumOf { tree ->
-//                        learningRate * predictTree(tree, dp)
-//                    }
-//                }
-//
-//                val predictedWaktu = dataPoints.map { dp ->
-//                    basePredictionWaktu + treesWaktu.sumOf { tree ->
-//                        learningRate * predictTree(tree, dp)
-//                    }
-//                }
-//
-//                val airEval = calculateMetrics(predictedAir, actualAir)
-//                val waktuEval = calculateMetrics(predictedWaktu, actualWaktu)
+            if (iter == maxIterasi - 1) {
+                val predictedAir = dataPoints.map { dp ->
+                    basePredictionAir + treesAir.sumOf { tree ->
+                        learningRate * predictTree(tree, dp)
+                    }
+                }
 
-//                println("Iterasi $iter - Training Metrics | Air: R²=${airEval.r2} | Waktu: R²=${waktuEval.r2}")
-//            }
+                val predictedWaktu = dataPoints.map { dp ->
+                    basePredictionWaktu + treesWaktu.sumOf { tree ->
+                        learningRate * predictTree(tree, dp)
+                    }
+                }
+
+                val airEval = calculateMetrics(actualAir, predictedAir)
+                val waktuEval = calculateMetrics(actualWaktu, predictedWaktu)
+                finalTrainingResults = TrainingEvaluationResults(airEval, waktuEval)
+
+//                println("Iterasi ${iter + 1} - Metrik Pelatihan | Air: R²=${airEval.r2} | Waktu: R²=${waktuEval.r2}")
+//                println("            Air: MAE=${(airEval.mae)}, RMSE=${(airEval.rmse)}, SMAPE=${(airEval.smape)}")
+//                println("            Waktu: MAE=${(waktuEval.mae)}, RMSE=${(waktuEval.rmse)}, SMAPE=${(waktuEval.smape)}")
+            }
 
             val deltaAir = delta(residualsAir, dataPoints.map { dp -> predictTree(treeAir, dp) })
             val deltaWaktu = delta(residualsWaktu, dataPoints.map { dp -> predictTree(treeWaktu, dp) })
 
             if (deltaAir < epsilon && deltaWaktu < epsilon) {
                 println("Konvergen pada iterasi $iter")
-                return
+                return finalTrainingResults
             }
         }
+
+        return finalTrainingResults
     }
 
     private fun calculateMetrics(actual: List<Double>, predicted: List<Double>): EvaluationMetrics {
@@ -375,22 +419,6 @@ class XGBoost(
         data: List<DataPoint>,
         simRoot: Double
     ): SplitResult? {
-        val features = listOf(
-//            "ordinalDate",
-//            "sinDayOfWeek", "cosDayOfWeek",
-//            "sinTimeBucket", "cosTimeBucket",
-            "sinTimeDayInteraction", "cosTimeDayInteraction",
-//            "isPuasa",
-//            "jamFreqZscore",
-            "jamFreqZscoreDecay",
-//            "puasaTimeInteraction",
-//            "puasaDecayInteraction",
-            "sinDayHourInteraction", "cosDayHourInteraction",
-//            "sinHour", "cosHour",
-//            "isWeekend",
-//            "isMealTime",
-//            "mealType"
-        )
 
         var best: SplitResult? = null
 
@@ -484,16 +512,6 @@ class XGBoost(
             val hour = LocalTime.ofSecondOfDay(currentTime.toLong()).hour
             val dayOfWeek = localDate.dayOfWeek.value
 
-//            val timeBucket = when (hour) {
-//                in 0..4 -> 0
-//                in 5..8 -> 1
-//                in 9..11 -> 2
-//                in 12..15 -> 3
-//                in 16..19 -> 4
-//                in 20..23 -> 5
-//                else -> -1
-//            }
-
             val timeBucket = when (hour) {
                 in 0..4 -> 0
                 in 5..9 -> 1
@@ -516,13 +534,11 @@ class XGBoost(
 
             val freqZscore = jamFreqZscore[hour] ?: 0.0
 
-            val weights = 14
-            val divider = 2
-            val decayWeights = List(weights) { exp(-it.toDouble() / divider) }
+            val decayWeights = List(DECAY_WEIGHTS) { exp(-it.toDouble() / DECAY_DIVIDER) }
             val jamFreqWithDecay = mutableMapOf<Int, Double>().apply {
                 globalMinumPerJam.forEach { (jam, records) ->
                     val totalDecay = records.mapIndexed { i, _ ->
-                        decayWeights.getOrElse(i.coerceAtMost(weights - 1)) { 0.0 }
+                        decayWeights.getOrElse(i.coerceAtMost(DECAY_WEIGHTS - 1)) { 0.0 }
                     }.sum()
                     this[jam] = totalDecay
                 }
@@ -534,20 +550,20 @@ class XGBoost(
                 (it - meanDecay) / (stdDecay + 1e-6)
             } ?: 0.0
 
-            val isPuasa = false
+            val isPuasa = false // Perlu disesuaikan jika ingin memperhitungkan puasa saat prediksi.
 
             val puasaTimeInteraction: Double = if (isPuasa) {
                 when (timeBucket) {
                     0 -> 0.7  // Sahur
-                    4 -> 1.2  // Buka puasa
-                    5 -> 0.9  // Tarawih
+                    3 -> 1.2  // Buka puasa
+                    4 -> 0.9  // Tarawih
                     else -> 0.3
                 }
             } else {
                 0.0
             }
 
-            val puasaDecayInteraction: Double = jamFreqZscoreDecay.times((if (isPuasa) 1.5 else 0.8)) ?: 0.0
+            val puasaDecayInteraction: Double = jamFreqZscoreDecay.times((if (isPuasa) 1.5 else 0.8))
 
             val dayHourInteraction = dayOfWeek * hour
             val sinDayHourInteraction = sin(2 * Math.PI * dayHourInteraction / (7*24))
@@ -578,15 +594,12 @@ class XGBoost(
                 sinDayOfWeek = sin(2 * Math.PI * dayOfWeek / 7),
                 cosDayOfWeek = cos(2 * Math.PI * dayOfWeek / 7),
                 timeBucket = timeBucket,
-//                sinTimeBucket = sin(2 * Math.PI * timeBucket / 6),
-//                cosTimeBucket = cos(2 * Math.PI * timeBucket / 6),
                 sinTimeBucket = sin(2 * Math.PI * timeBucket / 5),
                 cosTimeBucket = cos(2 * Math.PI * timeBucket / 5),
                 ordinalDate = localDate.toEpochDay().toInt(),
                 sinTimeDayInteraction = sinTimeDayInteraction,
                 cosTimeDayInteraction = cosTimeDayInteraction,
                 isPuasa = isPuasa,
-        //            jamCategory = jamCategory,
                 jamFreqZscore = freqZscore,
                 jamFreqZscoreDecay = jamFreqZscoreDecay,
                 puasaTimeInteraction = puasaTimeInteraction,
@@ -611,7 +624,7 @@ class XGBoost(
             predictionsAir.add(predAir)
             predictionsTime.add(predWaktu)
 
-            currentTime += predWaktu // Update waktu untuk prediksi berikutnya
+            currentTime += predWaktu
         }
 
         return predictionsAir.toDoubleArray() to predictionsTime.toTypedArray()
@@ -623,18 +636,12 @@ class XGBoost(
 
     fun evaluasi(
         actual: LinkedHashMap<String, Double>,
-        predicted: LinkedHashMap<String, Double>,
-        context: Context): EvaluationMetrics {
+        predicted: LinkedHashMap<String, Double>
+    ): EvaluationMetrics {
         if (actual.isEmpty()) return EvaluationMetrics(0.0, 0.0, 0.0, 0.0)
 
         val actualVals = actual.values.toList()
         val predVals = predicted.values.toList()
-
-//        actual.keys.forEachIndexed { index, key ->
-//            val actualVal = actual[key]
-//            val predVal = predicted[key]
-//            println("Tanggal: $key | Actual: $actualVal | Predicted: ${predVal ?: "N/A"}")
-//        }
 
         val mae = actualVals.zip(predVals).sumOf { abs(it.first - it.second) } / actualVals.size
         val rmse = sqrt(actualVals.zip(predVals).sumOf { (a, p) -> (a - p).pow(2) } / actualVals.size)
@@ -645,971 +652,134 @@ class XGBoost(
         val ssRes = actualVals.zip(predVals).sumOf { (a, p) -> (a - p).pow(2) }
         val r2 = if (ssTotal != 0.0) 1 - (ssRes / ssTotal) else 0.0
 
-        println("max_depth: $maxDepth | gamma: $gamma | lambda: $lambda | learning_rate: $learningRate | user: $idUser")
-        println("MAE: $mae | RMSE: $rmse | SMAPE: $smape | R2: $r2")
+//        println("max_depth: $maxDepth | gamma: $gamma | lambda: $lambda | learning_rate: $learningRate | user: $idUser")
+//        println("MAE: $mae | RMSE: $rmse | SMAPE: $smape | R2: $r2")
 
         return EvaluationMetrics(smape, mae, rmse, r2)
     }
+
+    data class FeatureImportanceInfo(
+        val gainImportance: Double,
+        val splitFrequency: Int
+    )
+
+    fun calculateFeatureImportanceWithFrequency(): Map<String, FeatureImportanceInfo> {
+        val featureImportance = mutableMapOf<String, Double>()
+        val featureFrequency = mutableMapOf<String, Int>()
+
+        // Hitung importance dan frequency untuk treesAir
+        treesAir.forEach { tree ->
+            calculateTreeFeatureImportanceWithFrequency(tree, featureImportance, featureFrequency)
+        }
+
+        // Hitung importance dan frequency untuk treesWaktu
+        treesWaktu.forEach { tree ->
+            calculateTreeFeatureImportanceWithFrequency(tree, featureImportance, featureFrequency)
+        }
+
+        // Normalisasi nilai importance
+        val totalImportance = featureImportance.values.sum()
+        val result = mutableMapOf<String, FeatureImportanceInfo>()
+
+        if (totalImportance > 0) {
+            featureImportance.forEach { (feature, importance) ->
+                val normalizedImportance = importance / totalImportance
+                val frequency = featureFrequency.getOrDefault(feature, 0)
+                result[feature] = FeatureImportanceInfo(normalizedImportance, frequency)
+            }
+        }
+
+        return result.toMap()
+    }
+
+    private fun calculateTreeFeatureImportanceWithFrequency(
+        node: TreeNode,
+        importanceMap: MutableMap<String, Double>,
+        frequencyMap: MutableMap<String, Int>
+    ) {
+        if (!node.isLeaf && node.feature != null && node.gain != null) {
+            // Tambahkan gain ke feature importance
+            importanceMap[node.feature] = importanceMap.getOrDefault(node.feature, 0.0) + node.gain
+
+            // Tambahkan frekuensi pemilihan fitur
+            frequencyMap[node.feature] = frequencyMap.getOrDefault(node.feature, 0) + 1
+
+            // Rekursif ke child nodes
+            node.left?.let { calculateTreeFeatureImportanceWithFrequency(it, importanceMap, frequencyMap) }
+            node.right?.let { calculateTreeFeatureImportanceWithFrequency(it, importanceMap, frequencyMap) }
+        }
+    }
+
+    fun printFeatureImportanceWithFrequency() {
+        val importance = calculateFeatureImportanceWithFrequency()
+
+        // Urutkan dari yang terpenting berdasarkan gain
+        val sortedImportance = importance.entries.sortedByDescending { it.value.gainImportance }
+
+        // Format output
+        val output = StringBuilder("Feature Importance (Gain | Frequency):\n")
+        sortedImportance.forEach { (feature, info) ->
+            output.append("${"%.2f".format(info.gainImportance * 100)}% | ${info.splitFrequency} splits - $feature\n")
+        }
+
+        println(output.toString())
+    }
+
+    fun toSerializableModel(): SerializableXGBoostModel {
+        return SerializableXGBoostModel(
+            maxDepth = this.maxDepth,
+            gamma = this.gamma,
+            lambda = this.lambda,
+            learningRate = this.learningRate,
+            basePredictionAir = this.basePredictionAir,
+            basePredictionWaktu = this.basePredictionWaktu,
+            treesAir = this.treesAir.map { convertTreeNodeToSerializable(it) },
+            treesWaktu = this.treesWaktu.map { convertTreeNodeToSerializable(it) },
+            globalMinumPerJam = this.globalMinumPerJam.mapValues { it.value.toList() }
+        )
+    }
+
+    private fun convertTreeNodeToSerializable(node: TreeNode): SerializableTreeNode {
+        return SerializableTreeNode(
+            residuals = node.residuals,
+            similarity = node.similarity,
+            isLeaf = node.isLeaf,
+            feature = node.feature,
+            thresholdNumeric = node.thresholdNumeric,
+            gain = node.gain,
+            left = node.left?.let { convertTreeNodeToSerializable(it) },
+            right = node.right?.let { convertTreeNodeToSerializable(it) }
+        )
+    }
+
+    private fun convertSerializableToTreeNode(sNode: SerializableTreeNode): TreeNode {
+        return TreeNode(
+            residuals = sNode.residuals,
+            similarity = sNode.similarity,
+            isLeaf = sNode.isLeaf,
+            feature = sNode.feature,
+            thresholdNumeric = sNode.thresholdNumeric,
+            gain = sNode.gain,
+            left = sNode.left?.let { convertSerializableToTreeNode(it) },
+            right = sNode.right?.let { convertSerializableToTreeNode(it) }
+        )
+    }
+
+    // Companion object untuk membuat dari serializable
+    companion object {
+        fun fromSerializableModel(serializableModel: SerializableXGBoostModel): XGBoost {
+            val xgboost = XGBoost(
+                maxDepth = serializableModel.maxDepth,
+                gamma = serializableModel.gamma,
+                lambda = serializableModel.lambda,
+                learningRate = serializableModel.learningRate
+            )
+            xgboost.basePredictionAir = serializableModel.basePredictionAir
+            xgboost.basePredictionWaktu = serializableModel.basePredictionWaktu
+            xgboost.treesAir.addAll(serializableModel.treesAir.map { xgboost.convertSerializableToTreeNode(it) })
+            xgboost.treesWaktu.addAll(serializableModel.treesWaktu.map { xgboost.convertSerializableToTreeNode(it) })
+            xgboost.globalMinumPerJam.putAll(serializableModel.globalMinumPerJam.mapValues { it.value.toMutableList() })
+            return xgboost
+        }
+    }
 }
-
-// -- VERSI FINAL --
-//class XGBoost(
-//    private val maxDepth: Int,
-//    private val gamma: Double,
-//    private val lambda: Double,
-//    private val learningRate: Double,
-//    private val idUser: Int
-//) {
-//    private var basePredictionAir = 0.0
-//    private var basePredictionWaktu = 0.0
-//    private val treesAir = mutableListOf<TreeNode>()
-//    private val treesWaktu = mutableListOf<TreeNode>()
-//    private val decimalFormat = DecimalFormat("#.##", DecimalFormatSymbols(Locale.US))
-//
-//    fun latihModel(tanggal: Array<String>, waktu: Array<String>, jumlahAir: DoubleArray, maxIterasi: Int) {
-//        val waktuDetik = waktu.map { LocalTime.parse(it).toSecondOfDay().toDouble() }
-//        val jumlahWaktu = waktuDetik.mapIndexed { i, w -> if (i == 0 || w - waktuDetik[i - 1] < 0) 0.0 else w - waktuDetik[i - 1] }
-//
-//        val dataPoints = tanggal.indices.map {
-//            val localDate = LocalDate.parse(tanggal[it].substring(0, 10))
-//            val hour = LocalTime.ofSecondOfDay(waktuDetik[it].toLong()).hour
-//
-//            val dayOfWeek = localDate.dayOfWeek.value
-//            val sinDayOfWeek = sin(2 * Math.PI * dayOfWeek / 7)
-//            val cosDayOfWeek = cos(2 * Math.PI * dayOfWeek / 7)
-//
-//            val timeBucket = when (hour) {
-//                in 0..4 -> 0
-//                in 5..8 -> 1
-//                in 9..11 -> 2
-//                in 12..15 -> 3
-//                in 16..19 -> 4
-//                in 20..23 -> 5
-//                else -> -1
-//            }
-//            val sinTime = sin(2 * Math.PI * timeBucket / 6)
-//            val cosTime = cos(2 * Math.PI * timeBucket / 6)
-//
-//            DataPoint(
-//                tanggal = tanggal[it],
-//                air = jumlahAir[it],
-//                waktuDetik = waktuDetik[it],
-//                durasi = jumlahWaktu[it],
-//                dayOfWeek = dayOfWeek,
-//                sinDayOfWeek = sinDayOfWeek,
-//                cosDayOfWeek = cosDayOfWeek,
-//                timeBucket = timeBucket,
-//                sinTimeBucket = sinTime,
-//                cosTimeBucket = cosTime
-//            )
-//        }
-//
-//        basePredictionAir = jumlahAir.average()
-//        basePredictionWaktu = jumlahWaktu.average()
-//
-//        var residualsAir = jumlahAir.map { it - basePredictionAir }
-//        var residualsWaktu = jumlahWaktu.map { it - basePredictionWaktu }
-//
-//        val epsilon = 1e-8
-//        repeat(maxIterasi) {
-//            val dataAir = dataPoints.zip(residualsAir).map { (dp, r) -> dp.copy(residual = r) }
-//            val dataWaktu = dataPoints.zip(residualsWaktu).map { (dp, r) -> dp.copy(residual = r) }
-//
-//            val treeAir = buildTree(dataAir)
-//            val treeWaktu = buildTree(dataWaktu)
-//
-//            treesAir.add(treeAir)
-//            treesWaktu.add(treeWaktu)
-//
-//            residualsAir = dataPoints.map { dp ->
-//                val pred = predictTree(treeAir, dp)
-//                (residualsAir[dataPoints.indexOf(dp)] - learningRate * pred)
-//            }
-//
-//            residualsWaktu = dataPoints.map { dp ->
-//                val pred = predictTree(treeWaktu, dp)
-//                (residualsWaktu[dataPoints.indexOf(dp)] - learningRate * pred)
-//            }
-//
-//            val deltaAir = delta(residualsAir, dataPoints.map { dp -> predictTree(treeAir, dp) })
-//            val deltaWaktu = delta(residualsWaktu, dataPoints.map { dp -> predictTree(treeWaktu, dp) })
-//
-//            if (deltaAir < epsilon && deltaWaktu < epsilon) return
-//        }
-//    }
-//
-//    private fun buildTree(data: List<DataPoint>, depth: Int = 0): TreeNode {
-//        val simRoot = similarity(data.map { it.residual })
-//        if (depth >= maxDepth && maxDepth != 0) return TreeNode(data.map { it.residual }, simRoot, isLeaf = true)
-//
-//        val best = cariSplitTerbaik(data, simRoot)
-//        if (best == null || best.gain - gamma < 0) return TreeNode(data.map { it.residual }, simRoot, isLeaf = true)
-//
-//        val left = data.filter { getFitur(it, best.feature) < best.threshold }
-//        val right = data.filter { getFitur(it, best.feature) >= best.threshold }
-//
-//        if (left.isEmpty() || right.isEmpty()) return TreeNode(data.map { it.residual }, simRoot, isLeaf = true)
-//
-//        return TreeNode(
-//            residuals = data.map { it.residual },
-//            similarity = simRoot,
-//            isLeaf = false,
-//            feature = best.feature,
-//            thresholdNumeric = best.threshold,
-//            gain = best.gain,
-//            left = buildTree(left, depth + 1),
-//            right = buildTree(right, depth + 1)
-//        )
-//    }
-//
-//    private data class SplitResult(val feature: String, val threshold: Double, val gain: Double)
-//
-//    private fun cariSplitTerbaik(data: List<DataPoint>, simRoot: Double): SplitResult? {
-//        val features = listOf(
-//            "sinDayOfWeek", "cosDayOfWeek",
-//            "sinTimeBucket", "cosTimeBucket",
-//        )
-//        var best: SplitResult? = null
-//
-//        for (feature in features) {
-//            val sorted = data.sortedBy { getFitur(it, feature) }
-//            for (i in 1 until sorted.size) {
-//                val threshold = (getFitur(sorted[i - 1], feature) + getFitur(sorted[i], feature)) / 2
-//                val left = sorted.filter { getFitur(it, feature) < threshold }.map { it.residual }
-//                val right = sorted.filter { getFitur(it, feature) >= threshold }.map { it.residual }
-//
-//                if (left.isEmpty() || right.isEmpty()) continue
-//
-//                val gain = similarity(left) + similarity(right) - simRoot
-//                if (best == null || gain > best.gain) {
-//                    best = SplitResult(feature, threshold, gain)
-//                }
-//            }
-//        }
-//
-//        return best
-//    }
-//
-//    private fun similarity(residuals: List<Double>): Double {
-//        val sum = residuals.sum()
-//        return (sum * sum) / (residuals.size + lambda)
-//    }
-//
-//    private fun getFitur(dp: DataPoint, feature: String): Double {
-//        return when (feature) {
-//            "sinTimeBucket" -> dp.sinTimeBucket
-//            "cosTimeBucket" -> dp.cosTimeBucket
-//            "sinDayOfWeek" -> dp.sinDayOfWeek
-//            "cosDayOfWeek" -> dp.cosDayOfWeek
-//            else -> error("Fitur tidak dikenali: $feature")
-//        }
-//    }
-//
-//    private fun predictTree(tree: TreeNode, dp: DataPoint): Double {
-//        return if (tree.isLeaf) {
-//            tree.residuals.sum() / (tree.residuals.size + lambda)
-//        } else {
-//            val value = getFitur(dp, tree.feature!!)
-//            if (value < tree.thresholdNumeric!!) {
-//                predictTree(tree.left!!, dp)
-//            } else {
-//                predictTree(tree.right!!, dp)
-//            }
-//        }
-//    }
-//
-//    fun prediksi(waktuTerakhir: String, batasWaktu: String, tanggal: String, bedaHari: Boolean): Pair<DoubleArray, Array<Double>>? {
-//        if (treesAir.isEmpty() || treesWaktu.isEmpty()) return null
-//
-//        val start = LocalTime.parse(waktuTerakhir).toSecondOfDay().toDouble()
-//        var end = LocalTime.parse(batasWaktu).toSecondOfDay().toDouble()
-//        if (bedaHari) end += 86400
-//
-//        val localDate = LocalDate.parse(tanggal.substring(0,10))
-//        val hour = LocalTime.ofSecondOfDay(start.toLong()).hour
-//
-//        val dayOfWeek = localDate.dayOfWeek.value
-//        val sinDayOfWeek = sin(2 * Math.PI * dayOfWeek / 7)
-//        val cosDayOfWeek = cos(2 * Math.PI * dayOfWeek / 7)
-//
-//        val timeBucket = when (hour) {
-//            in 0..4 -> 0
-//            in 5..8 -> 1
-//            in 9..11 -> 2
-//            in 12..15 -> 3
-//            in 16..19 -> 4
-//            in 20..23 -> 5
-//            else -> -1
-//        }
-//        val sinTime = sin(2 * Math.PI * timeBucket / 6)
-//        val cosTime = cos(2 * Math.PI * timeBucket / 6)
-//
-//        val dp = DataPoint(
-//            tanggal = tanggal,
-//            air = 0.0,
-//            waktuDetik = start,
-//            durasi = 0.0,
-//            dayOfWeek = dayOfWeek,
-//            sinDayOfWeek = sinDayOfWeek,
-//            cosDayOfWeek = cosDayOfWeek,
-//            timeBucket = timeBucket,
-//            sinTimeBucket = sinTime,
-//            cosTimeBucket = cosTime,
-//        )
-//
-//        val predAir = basePredictionAir + treesAir.sumOf { tree ->
-//            learningRate * predictTree(tree, dp)
-//        }
-//
-//        val predWaktu = basePredictionWaktu + treesWaktu.sumOf { tree ->
-//            learningRate * predictTree(tree, dp)
-//        }
-//
-////        val predAir = basePredictionAir + learningRate * predictTree(treesAir.last(), dp)
-////        val predWaktu = basePredictionWaktu + learningRate * predictTree(treesWaktu.last(), dp)
-//
-//        if (predWaktu <= 0) return null
-//
-//        val steps = ((end - start) / predWaktu).toInt()
-//        return DoubleArray(steps) { predAir } to Array(steps) { predWaktu }
-//    }
-//
-//    private fun delta(old: List<Double>, predicted: List<Double>): Double {
-//        return old.zip(predicted).map { abs(it.first - it.second) }.average()
-//    }
-//
-//    fun evaluasi(
-//        actual: LinkedHashMap<String, Double>,
-//        predicted: LinkedHashMap<String, Double>,
-//        context: Context): EvaluationMetrics {
-//        if (actual.isEmpty()) return EvaluationMetrics(0.0, 0.0, 0.0, 0.0)
-//
-//        val actualVals = actual.values.toList()
-//        val predVals = predicted.values.toList()
-//
-//        val mae = actualVals.zip(predVals).sumOf { abs(it.first - it.second) } / actualVals.size
-//        val rmse = sqrt(actualVals.zip(predVals).sumOf { (a, p) -> (a - p).pow(2) } / actualVals.size)
-//        val smape = actualVals.zip(predVals).sumOf { (a, p) -> if ((abs(a) + abs(p)) != 0.0) 2 * abs(a - p) / (abs(a) + abs(p)) else 0.0 } / actualVals.size
-//
-//        val mean = actualVals.average()
-//        val ssTotal = actualVals.sumOf { (it - mean).pow(2) }
-//        val ssRes = actualVals.zip(predVals).sumOf { (a, p) -> (a - p).pow(2) }
-//        val r2 = if (ssTotal != 0.0) 1 - (ssRes / ssTotal) else 0.0
-//
-//        println("max_depth: $maxDepth | gamma: $gamma | lambda: $lambda | learning_rate: $learningRate | user: $idUser")
-//        println("MAE: $mae | RMSE: $rmse | SMAPE: $smape | R2: $r2")
-//
-//        return EvaluationMetrics(smape, mae, rmse, r2)
-//    }
-//}
-//
-//data class DataPoint(
-//    val tanggal: String,
-//    val air: Double,
-//    val waktuDetik: Double,
-//    val durasi: Double,
-//    val dayOfWeek: Int,
-//    val sinDayOfWeek: Double,
-//    val cosDayOfWeek: Double,
-//    val timeBucket: Int,
-//    val sinTimeBucket: Double,
-//    val cosTimeBucket: Double,
-//    val residual: Double = 0.0,
-//)
-//
-//
-//data class TreeNode(
-//    val residuals: List<Double>,
-//    val similarity: Double,
-//    val isLeaf: Boolean = false,
-//    val feature: String? = null,
-//    val thresholdNumeric: Double? = null,
-//    val gain: Double? = null,
-//    val left: TreeNode? = null,
-//    val right: TreeNode? = null
-//)
-
-
-//package com.example.stationbottle.data
-//
-//import androidx.compose.material3.MaterialTheme
-//import co.yml.charts.common.model.Point
-//import co.yml.charts.ui.barchart.models.BarData
-//import java.text.DecimalFormat
-//import java.text.DecimalFormatSymbols
-//import java.time.LocalTime
-//import java.util.Locale
-//import kotlin.math.abs
-//import kotlin.math.pow
-//import kotlin.math.sqrt
-//
-//class XGBoost(private val learningRate: Double, private val lambda: Double, private val gamma: Double) {
-//    //    private val lambda = 100.0
-////    private val gamma = 0.0
-////    private val learningRate = 0.3
-//    private val maxDepth = 10
-//    private var prediksiAir = 0.0
-//    private var prediksiWaktu = 0.0
-//    private val treesAir = mutableListOf<TreeNode>()
-//    private val treesWaktu = mutableListOf<TreeNode>()
-//    val symbols = DecimalFormatSymbols(Locale.US)
-//    val decimalFormat = DecimalFormat("#.##", symbols)
-//
-//    fun latihModel(tanggal: Array<String>, waktu: Array<String>, jumlahAir: DoubleArray, maxIterasi: Int) {
-//
-//        val waktuDalamDetik = waktu.map { LocalTime.parse(it).toSecondOfDay().toDouble() }
-//        val jumlahWaktu = DoubleArray(waktuDalamDetik.size)
-//
-//        val dataPoints = waktuDalamDetik.mapIndexed { index, waktu ->
-//            val perbedaanWaktu = if (index == 0 || waktu - waktuDalamDetik[index - 1] < 0) {
-//                0.0
-//            } else {
-//                waktu - waktuDalamDetik[index - 1]
-//            }
-//            jumlahWaktu[index] = perbedaanWaktu
-//            DataPoint(tanggal[index], jumlahAir[index], waktu, perbedaanWaktu)
-//        }
-//
-//        prediksiAir = jumlahAir.average()
-//        var residualsAir = jumlahAir.map {
-//            decimalFormat.parse(decimalFormat.format(it - prediksiAir))!!.toDouble()
-//        }
-//
-//        prediksiWaktu = jumlahWaktu.average()
-//        var residualsWaktu = jumlahWaktu.map {
-//            decimalFormat.parse(decimalFormat.format(it - prediksiWaktu))!!.toDouble()
-//        }
-//
-//        val epsilon = 1e-6
-//        for (iterasi in 1..maxIterasi) {
-//            val rootAir = buatPohon(
-//                dataPoints.map {
-//                    DataPoint(it.tanggal, it.minum, residualsAir[dataPoints.indexOf(it)], it.timeDifference)
-//                }, 0
-//            )
-//            treesAir.add(rootAir)
-//
-//            val rootWaktu = buatPohon(
-//                dataPoints.map {
-//                    DataPoint(it.tanggal, it.minum, residualsWaktu[dataPoints.indexOf(it)], it.timeDifference)
-//                }, 0
-//            )
-//            treesWaktu.add(rootWaktu)
-//
-//            val newResidualsAir = dataPoints.mapIndexed { index, point ->
-//                val outputValue = hitungOutputValue(rootAir, point.tanggal)
-//                residualsAir[index] - learningRate * outputValue
-//            }
-//
-//            val newResidualsWaktu = dataPoints.mapIndexed { index, point ->
-//                val outputValue = hitungOutputValue(rootWaktu, point.tanggal)
-//                residualsWaktu[index] - learningRate * outputValue
-//            }
-//
-//            val deltaAir = newResidualsAir.zip(residualsAir).map { (new, old) -> abs(new - old) }.average()
-//            val deltaWaktu = newResidualsWaktu.zip(residualsWaktu).map { (new, old) -> abs(new - old) }.average()
-//
-//            residualsAir = newResidualsAir
-//            residualsWaktu = newResidualsWaktu
-//
-//            if (deltaAir < epsilon && deltaWaktu < epsilon) {
-//                println("Pelatihan berhenti pada iterasi ke-$iterasi karena perubahan residual sudah kecil.")
-//                break
-//            }
-//        }
-//    }
-//
-//    private fun buatPohon(data: List<DataPoint>, depth: Int = 0): TreeNode {
-//        val rootSimilarity = hitungSimilarity(data.map { it.residual })
-//
-//        if (depth >= maxDepth) {
-//            return TreeNode(
-//                residuals = data.map { it.residual },
-//                similarity = rootSimilarity,
-//                isLeaf = true
-//            )
-//        }
-//
-//        val (bestThreshold, bestGain) = temukanThresholdTerbaik(data)
-//
-//        if (bestGain - gamma < 0) {
-//            return TreeNode(
-//                residuals = data.map { it.residual },
-//                similarity = rootSimilarity,
-//                isLeaf = true
-//            )
-//        }
-//
-//        val leftData = data.filter {  it.tanggal < bestThreshold }
-//        val rightData = data.filter { it.tanggal >= bestThreshold }
-//
-//        if(leftData.isEmpty() || rightData.isEmpty()){
-//            return TreeNode(
-//                residuals = data.map { it.residual },
-//                similarity = rootSimilarity,
-//                isLeaf = true
-//            )
-//        }
-//
-//        return TreeNode(
-//            residuals = data.map { it.residual },
-//            similarity = rootSimilarity,
-//            threshold = bestThreshold,
-//            gain = bestGain,
-//            left = buatPohon(leftData, depth + 1),
-//            right = buatPohon(rightData, depth + 1)
-//        )
-//    }
-//
-//    private fun hitungSimilarity(residuals: List<Double>): Double {
-//        val sumResiduals = decimalFormat.parse(decimalFormat.format(residuals.sum()))!!.toDouble()
-//        val similarity = (sumResiduals * sumResiduals) / (residuals.size + lambda)
-//        return similarity
-//    }
-//
-//    private fun hitungGain(leftResiduals: List<Double>, rightResiduals: List<Double>, rootSimilarity: Double): Double {
-//        val leftSimilarity = hitungSimilarity(leftResiduals)
-//        val rightSimilarity = hitungSimilarity(rightResiduals)
-//        return leftSimilarity + rightSimilarity - rootSimilarity
-//    }
-//
-//    private fun temukanThresholdTerbaik(data: List<DataPoint>): Pair<String, Double> {
-//        var thresholdTerbaik = ""
-//        var gainTerbaik = Double.NEGATIVE_INFINITY
-//
-//        for (i in 1 until data.size) {
-//
-//            val threshold = data[i].tanggal.toString()
-//
-//            val leftResiduals = data.filter { it.tanggal < data[i].tanggal }.map { it.residual }
-//            val rightResiduals = data.filter { it.tanggal >= data[i].tanggal }.map { it.residual }
-//
-//            val rootSimilarity = hitungSimilarity(data.map { it.residual })
-//            val gain = hitungGain(leftResiduals, rightResiduals, rootSimilarity)
-//
-//            if (gain > gainTerbaik) {
-//                thresholdTerbaik = threshold
-//                gainTerbaik = gain
-//            }
-//        }
-//        return thresholdTerbaik to gainTerbaik
-//    }
-//
-//    private fun hitungOutputValue(pohon: TreeNode, tanggal: String): Double {
-//        if (pohon.isLeaf) {
-//            return pohon.residuals.sum() / (pohon.residuals.size + lambda)
-//        }
-//        return if (tanggal < pohon.threshold!!) {
-//            hitungOutputValue(pohon.left!!, tanggal)
-//        } else {
-//            hitungOutputValue(pohon.right!!, tanggal)
-//        }
-//    }
-//
-//    fun prediksi(waktuTerakhir: String, batasWaktu: String, tanggalTerakhir: String, isBedaHari: Boolean): Pair<DoubleArray, Array<Double>>? {
-//        if (treesAir.isEmpty() || treesWaktu.isEmpty()) {
-//            println("Model has not been trained. Please train before prediction.")
-//            return null
-//        }
-//
-//        val waktuTerakhirDetik = LocalTime.parse(waktuTerakhir).toSecondOfDay().toDouble()
-//        var batasWaktuDetik = LocalTime.parse(batasWaktu).toSecondOfDay().toDouble()
-//
-//        if(isBedaHari){
-//            batasWaktuDetik += 86400
-//        }
-//
-////        println(treesAir.last())
-////        println(treesWaktu.last())
-//
-//        val predAir = prediksiAir + learningRate * hitungOutputValue(treesAir.last(), tanggalTerakhir)
-//        val predWaktu = prediksiWaktu + learningRate * hitungOutputValue(treesWaktu.last(), tanggalTerakhir)
-//
-//        if (predWaktu <= 0) {
-//            println("Invalid predicted time interval (predWaktu): $predWaktu")
-//            return null
-//        }
-//
-//        val totalInterval = ((batasWaktuDetik - waktuTerakhirDetik) / predWaktu).toInt()
-//
-//        val waktuArray = Array(totalInterval) { index ->
-//            val waktuDetik = waktuTerakhirDetik + (index + 1) * predWaktu
-//            var waktu:String
-//            if(isBedaHari && waktuDetik > 86400){
-//                waktu = LocalTime.ofSecondOfDay((waktuDetik - 86400).toLong()).toString()
-//            } else {
-//                waktu = LocalTime.ofSecondOfDay(waktuDetik.toLong()).toString()
-//            }
-//            waktu
-//        }
-//
-//        val prediksiAir = waktuArray.map { predAir }.toDoubleArray()
-//        val prediksiWaktu = waktuArray.map { predWaktu }.toTypedArray()
-//
-//        return prediksiAir to prediksiWaktu
-//    }
-//
-//
-//    fun evaluasi(actual: LinkedHashMap<String, Double>, predicted: LinkedHashMap<String, Double>): EvaluationMetrics {
-//        val n = actual.size
-//
-//        if (n == 0) {
-//            return EvaluationMetrics(0.0, 0.0, 0.0, 0.0)
-//        }
-//
-//        println("----actual-----")
-//
-//        actual.entries.forEachIndexed { index, entry ->
-//            val date = entry.key
-//            val drinkValue = entry.value
-//
-//            println("date: $date | drink: $drinkValue")
-//        }
-//
-//        println("----prediksi-----")
-//
-//        predicted.entries.forEachIndexed { index, entry ->
-//            val date = entry.key
-//            val drinkValue = entry.value
-//
-//            println("date: $date | drink: $drinkValue")
-//        }
-//
-//        val actualValues = actual.values.toList()
-//        val predictedValues = predicted.values.toList()
-//
-//        val mae = actualValues.zip(predictedValues).sumOf { (a, p) ->
-//            abs(a - p)
-//        } / n
-//
-//        val rmse = sqrt(
-//            actualValues.zip(predictedValues).sumOf { (a, p) ->
-//                (a - p).pow(2)
-//            } / n
-//        )
-//
-//        val smape = actualValues.zip(predictedValues).sumOf { (a, p) ->
-//            val denominator = (abs(a) + abs(p))
-//            if (denominator != 0.0) 2 * abs(a - p) / denominator else 0.0
-//        } / n
-//
-//        val meanActual = actualValues.average()
-//        val ssTotal = actualValues.sumOf { (it - meanActual).pow(2) }
-//        val ssResidual = actualValues.zip(predictedValues).sumOf { (a, p) ->
-//            (a - p).pow(2)
-//        }
-//        val r2 = if (ssTotal != 0.0) 1 - ssResidual / ssTotal else 0.0
-//
-//        println("max_depth: $maxDepth, gamma: $gamma, lambda: $lambda, learning_rate: $learningRate")
-//        println("mae: \n$mae\nrmse: \n$rmse\nsmape: \n$smape\nr2: \n$r2")
-//
-//        return EvaluationMetrics(smape, mae, rmse, r2)
-//    }
-//}
-//
-//
-//data class TreeNode(
-//    val residuals: List<Double>,
-//    val similarity: Double,
-//    val threshold: String? = null,
-//    val gain: Double? = null,
-//    val left: TreeNode? = null,
-//    val right: TreeNode? = null,
-//    val isLeaf: Boolean = false
-//)
-
-//data class DataPoint(
-//    val tanggal: String,
-//    val minum: Double,
-////    val waktu: Double,
-//    val residual: Double,
-//    val timeDifference: Double
-//)
-
-//data class EvaluationMetrics(
-//    val smape: Double,
-//    val mae: Double,
-//    val rmse: Double,
-//    val r2: Double
-//)
-
-//package com.example.stationbottle.data
-//
-//import java.text.DecimalFormat
-//import java.text.DecimalFormatSymbols
-//import java.time.LocalDateTime
-//import java.time.LocalTime
-//import java.time.format.DateTimeFormatter
-//import java.util.Locale
-//import kotlin.math.abs
-//import kotlin.math.pow
-//import kotlin.math.sqrt
-//
-//class XGBoost(private val learningRate: Double, private val lambda: Double, private val gamma: Double) {
-////    private val lambda = 100.0
-////    private val gamma = 0.0
-////    private val learningRate = 0.3
-//    private val maxDepth = 10
-//    private var prediksiAir = 0.0
-//    private var prediksiWaktu = 0.0
-//    private val treesAir = mutableListOf<TreeNode>()
-//    private val treesWaktu = mutableListOf<TreeNode>()
-//    val symbols = DecimalFormatSymbols(Locale.US)
-//    val decimalFormat = DecimalFormat("#.##", symbols)
-//
-//    fun latihModel(tanggal: Array<String>, waktu: Array<String>, jumlahAir: DoubleArray, maxIterasi: Int) {
-//
-//        val waktuDalamDetik = DoubleArray(waktu.size) { index ->
-//            LocalTime.parse(waktu[index]).toSecondOfDay().toDouble()
-//        }
-//        val jumlahWaktu = DoubleArray(waktuDalamDetik.size)
-//
-//        val dataPoints = waktuDalamDetik.mapIndexed { index, waktuDetik ->
-//            val perbedaanWaktu = if (index == 0 || waktuDetik - waktuDalamDetik[index - 1] < 0) {
-//                0.0
-//            } else {
-//                waktuDetik - waktuDalamDetik[index - 1]
-//            }
-//            jumlahWaktu[index] = perbedaanWaktu
-//            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-//            val localDateTime = LocalDateTime.parse(tanggal[index], formatter)
-//            val localDate = localDateTime.toLocalDate()
-//            val localTime = LocalTime.parse(waktu[index])
-//            val dayOfWeek = localDate.dayOfWeek.value  // 1 (Monday) to 7 (Sunday)
-//            val isWeekend = if (dayOfWeek >= 6) 1 else 0
-//            val hourOfDay = localTime.hour
-//
-//            DataPoint(
-//                tanggal[index],
-//                jumlahAir[index],
-//                0.0,
-//                perbedaanWaktu,
-//                dayOfWeek,
-//                isWeekend,
-//                hourOfDay,
-//                waktu[index]
-//            )
-//        }
-//
-//        prediksiAir = jumlahAir.average()
-//        var residualsAir = jumlahAir.map {
-//            decimalFormat.parse(decimalFormat.format(it - prediksiAir))!!.toDouble()
-//        }
-//
-//        prediksiWaktu = jumlahWaktu.average()
-//        var residualsWaktu = jumlahWaktu.map {
-//            decimalFormat.parse(decimalFormat.format(it - prediksiWaktu))!!.toDouble()
-//        }
-//
-//        val epsilon = 1e-6
-//        for (iterasi in 1..maxIterasi) {
-//
-//            val rootAir = buatPohon(
-//                dataPoints.mapIndexed { i, dp -> dp.copy(residual = residualsAir[i]) }
-//            )
-//            treesAir.add(rootAir)
-//
-//            val rootWaktu = buatPohon(
-//                dataPoints.mapIndexed { i, dp -> dp.copy(residual = residualsWaktu[i]) }
-//            )
-//            treesWaktu.add(rootWaktu)
-//
-//            val newResidualsAir = dataPoints.mapIndexed { index, point ->
-//                val outputValue = hitungOutputValue(rootAir, point)
-//                residualsAir[index] - learningRate * outputValue
-//            }
-//
-//            val newResidualsWaktu = dataPoints.mapIndexed { index, point ->
-//                val outputValue = hitungOutputValue(rootWaktu, point)
-//                residualsWaktu[index] - learningRate * outputValue
-//            }
-//
-//            val deltaAir = newResidualsAir.zip(residualsAir).map { (new, old) -> abs(new - old) }.average()
-//            val deltaWaktu = newResidualsWaktu.zip(residualsWaktu).map { (new, old) -> abs(new - old) }.average()
-//
-//            residualsAir = newResidualsAir
-//            residualsWaktu = newResidualsWaktu
-//
-//            if (deltaAir < epsilon && deltaWaktu < epsilon) {
-//                println("Pelatihan berhenti pada iterasi ke-$iterasi karena perubahan residual sudah kecil.")
-//                break
-//            }
-//        }
-//    }
-//
-//    private fun buatPohon(data: List<DataPoint>, depth: Int = 0): TreeNode {
-//        val rootSimilarity = hitungSimilarity(data.map { it.residual })
-//
-//        if (depth >= maxDepth) {
-//            return TreeNode(
-//                residuals = data.map { it.residual },
-//                similarity = rootSimilarity,
-//                isLeaf = true
-//            )
-//        }
-//
-//        val fiturList: List<(DataPoint) -> Double> = listOf(
-//            { it.hourOfDay.toDouble() },
-//            { it.isWeekend.toDouble() },
-//            { it.timeDifference }
-//        )
-//
-//        var bestThreshold = 0.0
-//        var bestGain = Double.NEGATIVE_INFINITY
-//        var bestFeatureIndex = -1
-//        var bestLeft: List<DataPoint> = emptyList()
-//        var bestRight: List<DataPoint> = emptyList()
-//
-//        for ((i, fitur) in fiturList.withIndex()) {
-//            val (threshold, gain, left, right) = temukanThresholdTerbaik(data, fitur)
-//            if (gain > bestGain) {
-//                bestGain = gain
-//                bestThreshold = threshold
-//                bestFeatureIndex = i
-//                bestLeft = left
-//                bestRight = right
-//            }
-//        }
-//
-//        if (bestGain - gamma < 0 || bestLeft.isEmpty() || bestRight.isEmpty()) {
-//            return TreeNode(
-//                residuals = data.map { it.residual },
-//                similarity = rootSimilarity,
-//                isLeaf = true
-//            )
-//        }
-//
-//        return TreeNode(
-//            residuals = data.map { it.residual },
-//            similarity = rootSimilarity,
-//            threshold = bestThreshold.toString(),
-//            featureIndex = bestFeatureIndex,
-//            gain = bestGain,
-//            left = buatPohon(bestLeft, depth + 1),
-//            right = buatPohon(bestRight, depth + 1)
-//        )
-//    }
-//
-//    private fun hitungSimilarity(residuals: List<Double>): Double {
-//        val sumResiduals = decimalFormat.parse(decimalFormat.format(residuals.sum()))!!.toDouble()
-//        val similarity = (sumResiduals * sumResiduals) / (residuals.size + lambda)
-//        return similarity
-//    }
-//
-//    private fun hitungGain(leftResiduals: List<Double>, rightResiduals: List<Double>, rootSimilarity: Double): Double {
-//        val leftSimilarity = hitungSimilarity(leftResiduals)
-//        val rightSimilarity = hitungSimilarity(rightResiduals)
-//        return leftSimilarity + rightSimilarity - rootSimilarity
-//    }
-//
-//    private fun temukanThresholdTerbaik(
-//        data: List<DataPoint>,
-//        featureSelector: (DataPoint) -> Double
-//    ): Quadruple<Double, Double, List<DataPoint>, List<DataPoint>> {
-//        var thresholdTerbaik = 0.0
-//        var gainTerbaik = Double.NEGATIVE_INFINITY
-//        var bestLeft = emptyList<DataPoint>()
-//        var bestRight = emptyList<DataPoint>()
-//
-//        val sortedData = data.sortedBy { featureSelector(it) }
-//
-//        for (i in 1 until sortedData.size) {
-//            val threshold = (featureSelector(sortedData[i - 1]) + featureSelector(sortedData[i])) / 2
-//
-//            val left = sortedData.filter { featureSelector(it) < threshold }
-//            val right = sortedData.filter { featureSelector(it) >= threshold }
-//
-//            val rootSimilarity = hitungSimilarity(data.map { it.residual })
-//            val gain = hitungGain(left.map { it.residual }, right.map { it.residual }, rootSimilarity)
-//
-//            if (gain > gainTerbaik) {
-//                thresholdTerbaik = threshold
-//                gainTerbaik = gain
-//                bestLeft = left
-//                bestRight = right
-//            }
-//        }
-//
-//        return Quadruple(thresholdTerbaik, gainTerbaik, bestLeft, bestRight)
-//    }
-//
-//    data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-//
-//    private fun hitungOutputValue(pohon: TreeNode, data: DataPoint): Double {
-//        if (pohon.isLeaf) {
-//            return pohon.residuals.sum() / (pohon.residuals.size + lambda)
-//        }
-//
-//        val fiturValue = when (pohon.featureIndex) {
-//            0 -> data.hourOfDay.toDouble()
-//            1 -> data.isWeekend.toDouble()
-//            2 -> data.timeDifference
-//            else -> throw IllegalArgumentException("Invalid feature index")
-//        }
-//
-//        val threshold = pohon.threshold!!.toDouble()
-//        return if (fiturValue < threshold) {
-//            hitungOutputValue(pohon.left!!, data)
-//        } else {
-//            hitungOutputValue(pohon.right!!, data)
-//        }
-//    }
-//
-//    fun prediksi(waktuTerakhir: String, batasWaktu: String, tanggalTerakhir: String, isBedaHari: Boolean): Pair<DoubleArray, Array<Double>>? {
-//        if (treesAir.isEmpty() || treesWaktu.isEmpty()) {
-//            println("Model has not been trained. Please train before prediction.")
-//            return null
-//        }
-//
-//        val waktuTerakhirDetik = LocalTime.parse(waktuTerakhir).toSecondOfDay().toDouble()
-//        var batasWaktuDetik = LocalTime.parse(batasWaktu).toSecondOfDay().toDouble()
-//
-//        if(isBedaHari){
-//            batasWaktuDetik += 86400
-//        }
-//
-////        println(treesAir.last())
-////        println(treesWaktu.last())
-//
-////        val predAir = prediksiAir + learningRate * hitungOutputValue(treesAir.last())
-////        val predWaktu = prediksiWaktu + learningRate * hitungOutputValue(treesWaktu.last())
-//
-//        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-//        val localDateTime = LocalDateTime.parse(tanggalTerakhir, formatter)
-//        val localDate = localDateTime.toLocalDate()
-//        val dayOfWeek = localDate.dayOfWeek.value
-//        val isWeekend = if (dayOfWeek >= 6) 1 else 0
-//        val hourOfDay = LocalTime.parse(waktuTerakhir).hour
-//
-//        val dataPoint = DataPoint(
-//            tanggal = tanggalTerakhir,
-//            minum = 0.0, // placeholder
-//            residual = 0.0, // placeholder
-//            timeDifference = 0.0, // bisa dihitung atau di-set default
-//            dayOfWeek = dayOfWeek,
-//            isWeekend = isWeekend,
-//            hourOfDay = hourOfDay,
-//            waktuDetik = waktuTerakhir
-//        )
-//
-////        val outputAir = hitungOutputValue(treesAir.last(), dataPoint)
-////        val outputWaktu = hitungOutputValue(treesWaktu.last(), dataPoint)
-////
-////        val predAir = prediksiAir + learningRate * outputAir
-////        val predWaktu = prediksiWaktu + learningRate * outputWaktu
-//
-//        val predAir = prediksiAir + treesAir.sumOf { tree -> learningRate * hitungOutputValue(tree, dataPoint) }
-//        val predWaktu = prediksiWaktu + treesWaktu.sumOf { tree -> learningRate * hitungOutputValue(tree, dataPoint) }
-//
-//        if (predWaktu <= 0) {
-//            println("Invalid predicted time interval (predWaktu): $predWaktu")
-//            return null
-//        }
-//
-//        val totalInterval = ((batasWaktuDetik - waktuTerakhirDetik) / predWaktu).toInt()
-//
-//        val waktuArray = Array(totalInterval) { index ->
-//            val waktuDetik = waktuTerakhirDetik + (index + 1) * predWaktu
-//            var waktu:String
-//            if(isBedaHari && waktuDetik > 86400){
-//                waktu = LocalTime.ofSecondOfDay((waktuDetik - 86400).toLong()).toString()
-//            } else {
-//                waktu = LocalTime.ofSecondOfDay(waktuDetik.toLong()).toString()
-//            }
-//            waktu
-//        }
-//
-//        val prediksiAir = waktuArray.map { predAir }.toDoubleArray()
-//        val prediksiWaktu = waktuArray.map { predWaktu }.toTypedArray()
-//
-//        return prediksiAir to prediksiWaktu
-//    }
-//
-//
-//    fun evaluasi(actual: LinkedHashMap<String, Double>, predicted: LinkedHashMap<String, Double>): EvaluationMetrics {
-//        val n = actual.size
-//
-//        if (n == 0) {
-//            return EvaluationMetrics(0.0, 0.0, 0.0, 0.0)
-//        }
-//
-//        println("----actual-----")
-//
-//        actual.entries.forEachIndexed { index, entry ->
-//            val date = entry.key
-//            val drinkValue = entry.value
-//
-//            println("date: $date | drink: $drinkValue")
-//        }
-//
-//        println("----prediksi-----")
-//
-//        predicted.entries.forEachIndexed { index, entry ->
-//            val date = entry.key
-//            val drinkValue = entry.value
-//
-//            println("date: $date | drink: $drinkValue")
-//        }
-//
-//        val actualValues = actual.values.toList()
-//        val predictedValues = predicted.values.toList()
-//
-//        val mae = actualValues.zip(predictedValues).sumOf { (a, p) ->
-//            abs(a - p)
-//        } / n
-//
-//        val rmse = sqrt(
-//            actualValues.zip(predictedValues).sumOf { (a, p) ->
-//                (a - p).pow(2)
-//            } / n
-//        )
-//
-//        val smape = actualValues.zip(predictedValues).sumOf { (a, p) ->
-//            val denominator = (abs(a) + abs(p))
-//            if (denominator != 0.0) 2 * abs(a - p) / denominator else 0.0
-//        } / n
-//
-//        val meanActual = actualValues.average()
-//        val ssTotal = actualValues.sumOf { (it - meanActual).pow(2) }
-//        val ssResidual = actualValues.zip(predictedValues).sumOf { (a, p) ->
-//            (a - p).pow(2)
-//        }
-//        val r2 = if (ssTotal != 0.0) 1 - ssResidual / ssTotal else 0.0
-//
-//        println("max_depth: $maxDepth, gamma: $gamma, lambda: $lambda, learning_rate: $learningRate")
-//        println("mae: \n$mae\nrmse: \n$rmse\nsmape: \n$smape\nr2: \n$r2")
-//
-//        return EvaluationMetrics(smape, mae, rmse, r2)
-//    }
-//}
-//
-//
-//data class TreeNode(
-//    val residuals: List<Double>,
-//    val similarity: Double,
-//    val threshold: String? = null,
-//    val featureIndex: Int? = null,
-//    val gain: Double? = null,
-//    val left: TreeNode? = null,
-//    val right: TreeNode? = null,
-//    val isLeaf: Boolean = false
-//)
-//
-//data class DataPoint(
-//    val tanggal: String,
-//    val minum: Double,
-////    val waktu: Double,
-//    val residual: Double,
-//    val timeDifference: Double,
-//    val dayOfWeek: Int,
-//    val isWeekend: Int,
-//    val hourOfDay: Int,
-//    val waktuDetik: String
-//)
-//
-//data class EvaluationMetrics(
-//    val mape: Double,
-//    val mae: Double,
-//    val rmse: Double,
-//    val r2: Double
-//)

@@ -176,13 +176,13 @@ fun HomeScreen(
                     statusHistory = it.statusHistory
                 }
 
-//                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-//                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-//
-//                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-//                } else {
-//                    onPermissionGranted()
-//                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+
+                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    onPermissionGranted()
+                }
             }
 
             isLoading = false

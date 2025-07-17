@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.gms.google.services)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -74,5 +75,7 @@ dependencies {
     implementation(libs.accompanist.permissions)
     implementation(libs.gson)
     implementation(libs.pusher.java.client)
-    implementation("org.apache.poi:poi-ooxml:5.2.3")
+    implementation(libs.poi.ooxml)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.core)
 }

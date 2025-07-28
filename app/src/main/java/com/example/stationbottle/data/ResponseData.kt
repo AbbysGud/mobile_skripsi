@@ -1,5 +1,7 @@
 package com.example.stationbottle.data
 
+import java.time.LocalTime
+
 data class LoginResponse(
     val message: String,
     val token: String,
@@ -25,6 +27,9 @@ data class PredictionResult(
     val todayList: LinkedHashMap<String, Double>,
     val prediksiList: LinkedHashMap<String, Double>,
     val statusHistory: Boolean,
+    val drinkSessionList: MutableList<Triple<String, String, Double>?>?,
+    val userWaktuMulai: LocalTime?,
+    val userWaktuSelesai: LocalTime?
 )
 
 data class NGROKResponse(

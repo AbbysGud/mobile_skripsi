@@ -8,5 +8,6 @@ data class SensorData(
     val previous_weight: Double,
     val created_at: String,
     val updated_at: String,
-    val normalizedDiff: Double? = null
+    val normalizedDiff: Double? = null,
+    var session: Triple<String, String, Double>? = null
 )

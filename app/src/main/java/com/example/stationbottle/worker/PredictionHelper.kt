@@ -1,10 +1,6 @@
 package com.example.stationbottle.worker
 
 import android.content.Context
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import com.example.stationbottle.data.XGBoost
 import com.example.stationbottle.data.fetchSensorDataHistory
 import java.time.LocalTime
@@ -24,7 +20,6 @@ import kotlinx.coroutines.flow.first
 import simpanKeExcel
 import java.text.SimpleDateFormat
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.util.Date
@@ -38,8 +33,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.FileInputStream
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 import com.example.stationbottle.data.SerializableXGBoostModel
 import java.time.DayOfWeek
 import androidx.datastore.preferences.preferencesDataStore
@@ -82,18 +75,18 @@ object AppPreferences {
     }
 }
 
-suspend fun saveXGBoostModel(context: Context, model: XGBoost) = withContext(Dispatchers.IO) {
-    val modelFileName = "xgboost_model.json"
+suspend fun saveXGBoostModel(context: Context, model: XGBoost, idUser: Int) = withContext(Dispatchers.IO) {
+    val modelFileName = "xgboost_model_$idUser.json"
     val file = File(context.filesDir, modelFileName)
     val jsonString = Json.encodeToString(SerializableXGBoostModel.serializer(), model.toSerializableModel())
     FileOutputStream(file).use {
         it.write(jsonString.toByteArray())
     }
-    println("Model XGBoost berhasil disimpan ke $modelFileName")
+    println("Model XGBoost user $idUser berhasil disimpan ke $modelFileName")
 }
 
-suspend fun loadXGBoostModel(context: Context): XGBoost? = withContext(Dispatchers.IO) {
-    val modelFileName = "xgboost_model.json"
+suspend fun loadXGBoostModel(context: Context, idUser: Int): XGBoost? = withContext(Dispatchers.IO) {
+    val modelFileName = "xgboost_model_$idUser.json"
     val file = File(context.filesDir, modelFileName)
     if (!file.exists()) {
         println("File model tidak ditemukan: $modelFileName")
@@ -103,11 +96,11 @@ suspend fun loadXGBoostModel(context: Context): XGBoost? = withContext(Dispatche
         FileInputStream(file).use {
             val jsonString = it.readBytes().toString(Charsets.UTF_8)
             val serializableModel = Json.decodeFromString(SerializableXGBoostModel.serializer(), jsonString)
-            println("Model XGBoost berhasil dimuat dari $modelFileName")
+            println("Model XGBoost user $idUser berhasil dimuat dari $modelFileName")
             XGBoost.fromSerializableModel(serializableModel)
         }
     } catch (e: Exception) {
-        println("Error memuat model XGBoost dari file: ${e.message}")
+        println("Error memuat model XGBoost user $idUser dari file: ${e.message}")
         file.delete()
         null
     }
@@ -134,6 +127,9 @@ suspend fun calculatePrediction(
     val minumListToday = mutableListOf<Double>()
     val historyList = linkedMapOf<String, Double>()
     val todayList = linkedMapOf<String, Double>()
+    val drinkSessionList = mutableListOf<Triple<String, String, Double>?>(null)
+    var userWaktuMulai: LocalTime = LocalTime.parse("00:00:00")
+    var userWaktuSelesai: LocalTime = LocalTime.parse("23:59:59")
 
     val tanggalListUser = mutableListOf<String>()
     val waktuListUser = mutableListOf<String>()
@@ -141,6 +137,8 @@ suspend fun calculatePrediction(
 
     var totalPrediksi: Double = 0.0
     var totalPrediksiTest: Double = 0.0
+
+    var lolosSyaratHistory = false
 
     var statusHistory: Boolean
     var isBedaHari: Boolean = false
@@ -160,8 +158,13 @@ suspend fun calculatePrediction(
     if (userHistoryData != null) {
         val (uwaktuMulai, uwaktuSelesai) = testTime(userHistoryData)
 
+        userWaktuMulai = uwaktuMulai
+        userWaktuSelesai = uwaktuSelesai
+
         waktuMulaiUser = uwaktuMulai.toString()
         waktuSelesaiUser = uwaktuSelesai.toString()
+
+        val uniqueDates = mutableSetOf<String>()
 
         userHistoryData.forEach { sensorData ->
             if (
@@ -173,6 +176,9 @@ suspend fun calculatePrediction(
                     includeTime = true
                 ).toString()
                 tanggalListUser.add(tanggal)
+
+                val tanggalOnly = convertUtcToWIB(sensorData.created_at)?.substringBefore(" ") ?: ""
+                uniqueDates.add(tanggalOnly)
 
                 val waktu =
                     convertUtcToWIB(
@@ -196,9 +202,12 @@ suspend fun calculatePrediction(
                 listMinum.add(minum)
             }
         }
+
+        lolosSyaratHistory = uniqueDates.size >= 7
     }
 
     var todayData: List<SensorData>? = emptyList()
+    drinkSessionList.clear()
 
     if (user.waktu_mulai != null && user.waktu_selesai != null) {
         val startTime = dateFormat.parse(user.waktu_mulai)!!
@@ -239,6 +248,8 @@ suspend fun calculatePrediction(
 
             todayList[convertUtcToWIB(sensorData.created_at, timeOnly = true).toString()] =
                 sensorData.previous_weight - sensorData.weight
+
+            drinkSessionList.add(sensorData.session)
         }
     }
 
@@ -249,6 +260,7 @@ suspend fun calculatePrediction(
 
     if (
         statusHistory &&
+        lolosSyaratHistory &&
         (waktuMulai != "" && waktuSelesai != "") &&
         (todayDate != prediksiStore.datePrediksi ||
                 minumArrayToday.sum() != prediksiStore.totalAktual ||
@@ -445,15 +457,15 @@ suspend fun calculatePrediction(
         if (shouldRetrain) {
             println("Model perlu dilatih ulang atau belum dilatih. Melakukan pelatihan...")
 
-            val maxDepth = arrayOf(0, 10, 5, 3, 1)
-            val allGamma = arrayOf(200.0, 50.0, 0.0)
-            val allLambda = arrayOf(100.0, 10.0, 1.0, 0.0)
-            val learningRates = arrayOf(0.5, 0.3, 0.1, 0.01)
+//            val maxDepth = arrayOf(0, 10, 5, 3, 1)
+//            val allGamma = arrayOf(200.0, 50.0, 0.0)
+//            val allLambda = arrayOf(100.0, 10.0, 1.0, 0.0)
+//            val learningRates = arrayOf(0.5, 0.3, 0.1, 0.01)
 
-//            val maxDepth = arrayOf(3)
-//            val allGamma = arrayOf(50.0)
-//            val allLambda = arrayOf(10.0)
-//            val learningRates = arrayOf(0.5)
+            val maxDepth = arrayOf(10, 5, 3)
+            val allGamma = arrayOf(50.0)
+            val allLambda = arrayOf(10.0, 0.0)
+            val learningRates = arrayOf(0.5, 0.3, 0.1)
 
             for (idUser in idUserList) {
                 bestSmapeOverall[idUser] = Double.MAX_VALUE
@@ -644,10 +656,10 @@ suspend fun calculatePrediction(
 
             }
 
-            val finalDepth = bestDepthOverall[idUser] ?: 5
+            val finalDepth = bestDepthOverall[idUser] ?: 10
             val finalGamma = bestGammaOverall[idUser] ?: 50.0
             val finalLambda = bestLambdaOverall[idUser] ?: 0.0
-            val finalRate = bestLearningRateOverall[idUser] ?: 0.3
+            val finalRate = bestLearningRateOverall[idUser] ?: 0.1
 
             xgboost = XGBoost(finalDepth, finalGamma, finalLambda, finalRate)
             xgboost.latihModel(
@@ -658,21 +670,20 @@ suspend fun calculatePrediction(
                 maxIterasi = 10
             )
 
-
-            saveXGBoostModel(context, xgboost)
+            saveXGBoostModel(context, xgboost, idUser)
 
             AppPreferences.saveLastTrainedDate(context, todayActualDate.format(formatter))
             AppPreferences.saveModelTrainedStatus(context, true)
         } else {
             println("Model sudah dilatih dan tidak perlu dilatih ulang. Memuat model dari penyimpanan...")
-            xgboost = loadXGBoostModel(context)
+            xgboost = loadXGBoostModel(context, idUser)
             if (xgboost == null) {
                 println("Gagal memuat model dari file, melatih ulang sebagai fallback.")
 
-                val defaultDepth = bestDepthOverall[idUser] ?: 5
+                val defaultDepth = bestDepthOverall[idUser] ?: 10
                 val defaultGamma = bestGammaOverall[idUser] ?: 50.0
                 val defaultLambda = bestLambdaOverall[idUser] ?: 0.0
-                val defaultRate = bestLearningRateOverall[idUser] ?: 0.3
+                val defaultRate = bestLearningRateOverall[idUser] ?: 0.1
 
                 xgboost = XGBoost(defaultDepth, defaultGamma, defaultLambda, defaultRate)
                 xgboost.latihModel(
@@ -682,18 +693,18 @@ suspend fun calculatePrediction(
                     minumPerJam = combinedMinumPerJam,
                     maxIterasi = 10
                 )
-                saveXGBoostModel(context, xgboost)
+                saveXGBoostModel(context, xgboost, idUser)
                 AppPreferences.saveLastTrainedDate(context, todayActualDate.format(formatter))
                 AppPreferences.saveModelTrainedStatus(context, true)
             }
         }
 
-        xgboost.printFeatureImportanceWithFrequency()
-
         if (xgboost == null) {
             println("Model XGBoost tidak tersedia setelah semua upaya (pelatihan/pemuatan). Mengembalikan hasil kosong.")
-            return PredictionResult(0.0, 0.0, linkedMapOf(), linkedMapOf(), false)
+            return PredictionResult(0.0, 0.0, linkedMapOf(), linkedMapOf(), false, null, userWaktuMulai, userWaktuSelesai)
         }
+
+        xgboost.printFeatureImportanceWithFrequency()
 
         var waktuPred = waktuMulaiMap[idUser]!!
         if(todayList.isNotEmpty()){
@@ -735,6 +746,9 @@ suspend fun calculatePrediction(
             val detik = totalDetik % 60
             waktuPrediksiList.add(String.format("%02d:%02d:%02d", jam, menit, detik))
         }
+
+
+        println("SAMPE SINI, $prediksiAir")
 
         prediksiListResult = waktuPrediksiList.zip(prediksiAir.asList())
             .toMap(LinkedHashMap())
@@ -793,7 +807,10 @@ suspend fun calculatePrediction(
         todayPrediksi = totalPrediksi,
         todayList = todayList,
         prediksiList = prediksiListResult,
-        statusHistory = statusHistory
+        statusHistory = statusHistory,
+        drinkSessionList = drinkSessionList,
+        userWaktuMulai = userWaktuMulai,
+        userWaktuSelesai = userWaktuSelesai
     )
 }
 

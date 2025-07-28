@@ -1,6 +1,7 @@
 package com.example.stationbottle.data
 
 import com.example.stationbottle.service.ApiService
+import com.example.stationbottle.service.convertUtcToWIB
 import com.example.stationbottle.service.retry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -114,9 +115,29 @@ suspend fun fetchTodaySensorData(
                 apiService.getSensorData(today, today, userId)
             }
         }
-        todayData.data.filter {
-            it.previous_weight != 0.0 && it.previous_weight > it.weight && it.previous_weight - it.weight > 20
+
+        val sorted = todayData.data.sortedBy { it.created_at }
+
+        for (i in 1 until sorted.size) {
+            val prev = sorted[i - 1]
+            val curr = sorted[i]
+
+            if (
+                curr.previous_weight != 0.0 &&
+                curr.previous_weight > curr.weight &&
+                curr.previous_weight - curr.weight > 20
+            ) {
+                val startTime = convertUtcToWIB(prev.created_at, timeOnly = true) ?: "-"
+                val endTime = convertUtcToWIB(curr.created_at, timeOnly = true) ?: "-"
+                val volume = curr.previous_weight - curr.weight
+                curr.session = Triple(startTime, endTime, volume)
+            }
         }
+
+        sorted
+//        todayData.data.filter {
+//            it.previous_weight != 0.0 && it.previous_weight > it.weight && it.previous_weight - it.weight > 20
+//        }
     } catch (e: UnknownHostException) {
         println("Kesalahan jaringan: Server tidak dapat dijangkau.")
         null

@@ -33,10 +33,14 @@ import androidx.core.content.ContextCompat
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.stationbottle.R
+import com.example.stationbottle.client.RetrofitClient.apiService
 import com.example.stationbottle.data.PredictionResult
+import com.example.stationbottle.data.fetchSensorDataHistory
 import com.example.stationbottle.ui.screens.component.DatePickerOutlinedField
 import com.example.stationbottle.worker.NotificationWorker
 import com.example.stationbottle.worker.calculatePrediction
+import com.example.stationbottle.worker.loadXGBoostModel
+import com.example.stationbottle.worker.testTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -45,9 +49,12 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
+import kotlin.math.roundToInt
+import kotlin.text.count
 
 @SuppressLint("MutableCollectionMutableState")
 @Composable
@@ -63,13 +70,23 @@ fun HomeScreen(
     val user = userState.value
     val token = user?.token
 
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
     var todayList by remember { mutableStateOf(linkedMapOf<String, Double>()) }
     var prediksiList by remember { mutableStateOf(linkedMapOf<String, Double>()) }
+    var prediksiListAll by remember { mutableStateOf(linkedMapOf<String, Double>()) }
+    var sessionList by remember { mutableStateOf<MutableList<Triple<String, String, Double>?>?>(null) }
 
     var name by remember { mutableStateOf<String?>(null) }
     var dailyGoal by remember { mutableStateOf<Double?>(null) }
     var waktuMulai by remember { mutableStateOf<String?>(null) }
     var waktuSelesai by remember { mutableStateOf<String?>(null) }
+    var dataBasedWaktuMulai by remember { mutableStateOf<String?>(null) }
+    var dataBasedWaktuSelesai by remember { mutableStateOf<String?>(null) }
+
+    var userWaktuMulai by remember { mutableStateOf<LocalTime?>(null) }
+    var userWaktuSelesai by remember { mutableStateOf<LocalTime?>(null) }
 
     var totalAktual by remember { mutableDoubleStateOf(0.0) }
     var totalPrediksi by remember { mutableDoubleStateOf(0.0) }
@@ -165,7 +182,7 @@ fun HomeScreen(
                     user = it,
                     waktuMulai = it.waktu_mulai,
                     waktuSelesai = it.waktu_selesai,
-                    todayDate = fromDate
+                    todayDate = fromDate,
                 )
 
                 hasilPred?.let {
@@ -174,7 +191,12 @@ fun HomeScreen(
                     todayList = it.todayList
                     prediksiList = it.prediksiList
                     statusHistory = it.statusHistory
+                    sessionList = it.drinkSessionList
+                    userWaktuMulai = it.userWaktuMulai
+                    userWaktuSelesai = it.userWaktuSelesai
                 }
+
+                println(sessionList)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -182,6 +204,58 @@ fun HomeScreen(
                     requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
                     onPermissionGranted()
+                }
+
+                val xgboost = loadXGBoostModel(context, it.id)
+
+                if (xgboost != null) {
+                    var isBedaHari = false
+                    if(dateFormat.parse(it.waktu_mulai)!!.time > dateFormat.parse(it.waktu_selesai)!!.time){
+                        isBedaHari = true
+                    }
+
+                    var baseDate = LocalDate.parse(fromDate, formatter)
+
+                    dataBasedWaktuMulai = userWaktuMulai.toString()
+                    dataBasedWaktuSelesai = userWaktuSelesai.toString()
+
+                    var waktuPred = userWaktuMulai.toString()
+
+                    var dayPrediksi = baseDate.format(formatter)
+
+                    val (prediksiAir, prediksiWaktu) = xgboost.prediksi(
+                        waktuPred.toString(),
+                        userWaktuSelesai.toString(),
+                        dayPrediksi.toString(),
+                        isBedaHari
+                    )!!
+
+                    // Hasil prediksiAir = array jumlah minum
+                    // prediksiWaktu = array waktu delta dalam detik dari waktuMulai
+                    val waktuPrediksiList = mutableListOf<String>()
+
+                    val formatterPrediksi = if (waktuPred.count { it == ':' } == 2) {
+                        DateTimeFormatter.ofPattern("HH:mm:ss")
+                    } else {
+                        DateTimeFormatter.ofPattern("HH:mm")
+                    }
+
+                    val waktuMulaiTime = LocalTime.parse(waktuPred, formatterPrediksi)
+                    var totalDetik = waktuMulaiTime.toSecondOfDay()
+
+                    for (delta in prediksiWaktu) {
+                        totalDetik += delta.toInt()
+                        val jam = totalDetik / 3600
+                        val menit = (totalDetik % 3600) / 60
+                        val detik = totalDetik % 60
+                        waktuPrediksiList.add(String.format("%02d:%02d:%02d", jam, menit, detik))
+                    }
+
+                    prediksiListAll = waktuPrediksiList.zip(prediksiAir.asList())
+                        .toMap(LinkedHashMap())
+
+                    // Anda bisa tampilkan atau simpan hasil ini
+                    println("Prediksi total minum hari ini: ${prediksiAir.sum()} mL")
                 }
             }
 
@@ -240,16 +314,43 @@ fun HomeScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        CircularProgressIndicator(
-                            progress = { (totalAktual / dailyGoal!!).toFloat() },
+
+                        val progress = if (dailyGoal!! != 0.0) (totalAktual / dailyGoal!!).toFloat() else 0f
+                        val percentage = (progress * 100).roundToInt()
+
+                        Box(
                             modifier = Modifier.size(100.dp),
-                            strokeWidth = 8.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.inversePrimary
-                        )
+                            contentAlignment = Alignment.Center
+                        ) {
+
+                            CircularProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.size(100.dp),
+                                strokeWidth = 8.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.inversePrimary
+                            )
+
+                            Text(
+                                text = "$percentage%",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "${"%.0f".format(totalAktual)} mL / ${"%.0f".format(dailyGoal!!)} mL",
+                            text = buildAnnotatedString {
+                                append("${"%.0f".format(totalAktual)} mL")
+                                addStyle(SpanStyle(fontWeight = FontWeight.Medium), 0, length)
+
+                                append(" / ")
+
+                                val startOfDailyGoal = length
+                                append("${"%.0f".format(dailyGoal)} mL")
+                                addStyle(SpanStyle(fontWeight = FontWeight.SemiBold), startOfDailyGoal, length)
+                            },
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
@@ -298,20 +399,43 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Medium
                             )
                         } else {
-                            CircularProgressIndicator(
-                                progress = { (totalPrediksi / dailyGoal!!).toFloat() },
+
+                            val progress = if (dailyGoal!! != 0.0) (totalPrediksi / dailyGoal!!).toFloat() else 0f
+                            val percentage = (progress * 100).roundToInt()
+
+                            Box(
                                 modifier = Modifier.size(100.dp),
-                                strokeWidth = 8.dp,
-                                color = MaterialTheme.colorScheme.tertiary,
-                                trackColor = MaterialTheme.colorScheme.tertiaryContainer
-                            )
+                                contentAlignment = Alignment.Center
+                            ) {
+
+                                CircularProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier.size(100.dp),
+                                    strokeWidth = 8.dp,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    trackColor = MaterialTheme.colorScheme.tertiaryContainer
+                                )
+
+                                Text(
+                                    text = "$percentage%",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "${"%.0f".format(totalPrediksi)} mL / ${
-                                    "%.0f".format(
-                                        dailyGoal!!
-                                    )
-                                } mL",
+                                text = buildAnnotatedString {
+                                    append("${"%.0f".format(totalPrediksi)} mL")
+                                    addStyle(SpanStyle(fontWeight = FontWeight.Medium), 0, length)
+
+                                    append(" / ")
+
+                                    val startOfDailyGoal = length
+                                    append("${"%.0f".format(dailyGoal)} mL")
+                                    addStyle(SpanStyle(fontWeight = FontWeight.SemiBold), startOfDailyGoal, length)
+                                },
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -347,7 +471,7 @@ fun HomeScreen(
                         .fillMaxSize()
                         .padding(horizontal = 16.dp),
                 ) {
-                    todayList.forEach { (waktu, minum) ->
+                    todayList.entries.toList().forEachIndexed { index, (waktu, minum) ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -382,30 +506,65 @@ fun HomeScreen(
                                     horizontalAlignment = Alignment.Start,
                                     verticalArrangement = Arrangement.Center
                                 ) {
+                                    val session = sessionList?.getOrNull(index)
+                                    val sessionBefore = sessionList?.getOrNull(index - 1)
+
                                     val inputFormat =
                                         SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                                     val outputFormat =
                                         SimpleDateFormat("hh:mm a", Locale.getDefault())
                                     val waktuBiasa = inputFormat.parse(waktu)
-                                    val waktuFormat = outputFormat.format(waktuBiasa!!)
+                                    val waktuBiasaFormat = outputFormat.format(waktuBiasa!!)
+                                    var waktuFormat = waktuBiasaFormat
+
+                                    if (session != null){
+                                        val waktuMulai = inputFormat.parse(session.first)
+                                        val waktuAkhir = inputFormat.parse(session.second)
+                                        var waktuMulaiBefore: Date
+                                        var waktuMulaiBeforeFormat: String
+
+                                        if (userWaktuMulai == null) {
+                                            waktuMulaiBeforeFormat = "Memuat..."
+                                        } else if (index == 0) {
+                                            val formatterToString = DateTimeFormatter.ofPattern("HH:mm:ss")
+                                            val waktuMulaiString = userWaktuMulai?.format(formatterToString)
+                                            waktuMulaiBefore = inputFormat.parse(waktuMulaiString)
+                                            waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
+                                        } else {
+                                            waktuMulaiBefore = inputFormat.parse(sessionBefore?.second)!!
+                                            waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
+                                        }
+
+                                        val waktuMulaiFormat = outputFormat.format(waktuMulai!!)
+                                        val waktuAkhirFormat = outputFormat.format(waktuAkhir!!)
+
+                                        val selisihMillis = waktuAkhir.time - waktuMulai.time
+                                        val selisihMenit = selisihMillis / (60 * 1000)
+
+                                        if (selisihMenit < 5L && session.third > 100) {
+                                            waktuFormat = "$waktuMulaiBeforeFormat - $waktuAkhirFormat"
+                                        } else {
+                                            waktuFormat = "$waktuMulaiFormat - $waktuAkhirFormat"
+                                        }
+                                    }
 
                                     Text(
                                         text = waktuFormat,
                                         fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
                                         text = "Aktual",
                                         fontSize = 12.sp,
                                         color = Color.Gray,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                                 Text(
                                     text = "${minum.toInt()} ml",
                                     fontSize = 14.sp,
                                     color = Color.Gray,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 12.dp),
@@ -445,7 +604,7 @@ fun HomeScreen(
                         .fillMaxSize()
                         .padding(horizontal = 16.dp),
                 ) {
-                    prediksiList.forEach { (waktu, minum) ->
+                    prediksiList.entries.toList().forEachIndexed { index, (waktu, minum) ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -480,30 +639,61 @@ fun HomeScreen(
                                     horizontalAlignment = Alignment.Start,
                                     verticalArrangement = Arrangement.Center
                                 ) {
+
+                                    val sessionBefore = sessionList?.lastOrNull()
+
                                     val inputFormat =
                                         SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                                     val outputFormat =
                                         SimpleDateFormat("hh:mm a", Locale.getDefault())
                                     val waktuBiasa = inputFormat.parse(waktu)
-                                    val waktuFormat = outputFormat.format(waktuBiasa!!)
+                                    var waktuFormat = outputFormat.format(waktuBiasa!!)
+
+                                    var waktuMulaiBefore: Date
+                                    var waktuMulaiBeforeFormat: String
+
+                                    if (sessionBefore != null && index == 0){
+                                        val waktuMulai = inputFormat.parse(sessionBefore.second)
+
+                                        val waktuMulaiFormat = outputFormat.format(waktuMulai!!)
+//                                        val waktuAkhirFormat = outputFormat.format(waktuAkhir!!)
+
+                                        waktuFormat = "$waktuMulaiFormat - $waktuFormat"
+                                    } else if (index == 0) {
+                                        if (userWaktuMulai == null) {
+                                            waktuMulaiBeforeFormat = "Memuat..."
+                                        } else {
+                                            val formatterToString = DateTimeFormatter.ofPattern("HH:mm:ss")
+                                            val waktuMulaiString = userWaktuMulai?.format(formatterToString)
+                                            waktuMulaiBefore = inputFormat.parse(waktuMulaiString)
+                                            waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
+
+                                            waktuFormat = "$waktuMulaiBeforeFormat - $waktuFormat"
+                                        }
+                                    } else {
+                                        waktuMulaiBefore = inputFormat.parse(prediksiList.entries.toList().getOrNull(index - 1)?.key)
+                                        waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
+
+                                        waktuFormat = "$waktuMulaiBeforeFormat - $waktuFormat"
+                                    }
 
                                     Text(
                                         text = waktuFormat,
                                         fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
                                         text = "Prediksi",
                                         fontSize = 12.sp,
                                         color = Color.Gray,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                                 Text(
                                     text = "${minum.toInt()} ml",
                                     fontSize = 14.sp,
                                     color = Color.Gray,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 12.dp),
@@ -527,7 +717,7 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (prediksiList.isEmpty()) {
+            if (prediksiListAll.isEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Perlu Data Prediksi Untuk Mendapatkan Tips",
@@ -536,27 +726,36 @@ fun HomeScreen(
                     color = Color.Gray
                 )
             } else {
-                val prediksiEntries =
-                    prediksiList.entries.toList().take(2) // Konversi ke List lalu ambil 2 pertama
-                val minumTips = prediksiEntries.firstOrNull()?.value ?: 0.0
-                var minumTotal = 0.0
-                val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-
-                val waktuTips = if (prediksiEntries.size == 2) {
-                    val waktu1 = dateFormat.parse(prediksiEntries[0].key)?.time ?: 0L
-                    val waktu2 = dateFormat.parse(prediksiEntries[1].key)?.time ?: 0L
+//                val prediksiEntries =
+//                    prediksiListAll.entries.toList().take(2) // Konversi ke List lalu ambil 2 pertama
+//                val minumTips = prediksiEntries.firstOrNull()?.value ?: 0.0
+//                var minumTotal = 0.0
+//                val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+//
+//                val waktuTips = if (prediksiEntries.size == 2) {
+//                    val waktu1 = dateFormat.parse(prediksiEntries[0].key)?.time ?: 0L
+//                    val waktu2 = dateFormat.parse(prediksiEntries[1].key)?.time ?: 0L
+//                    waktu2 - waktu1
+//                } else {
+//                    0L
+//                }
+                val prediksiList = prediksiListAll.entries.toList().sortedBy { it.key }
+                val waktuSelisihList = prediksiList.zipWithNext().map { (a, b) ->
+                    val waktu1 = dateFormat.parse(a.key)?.time ?: 0L
+                    val waktu2 = dateFormat.parse(b.key)?.time ?: 0L
                     waktu2 - waktu1
-                } else {
-                    0L
                 }
+                val waktuTips = waktuSelisihList.average().toLong()
+                val minumTips = prediksiList.map { it.value }.average()
+                var minumTotal = 0.0
 
                 if (waktuTips > 0) {
-                    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+                    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
                     val today = LocalDate.now()
                     val sekarang = LocalTime.now()
-                    val timeMulai = LocalTime.parse(waktuMulai, timeFormatter)
-                    val timeSelesai = LocalTime.parse(waktuSelesai, timeFormatter)
+                    val timeMulai = LocalTime.parse(dataBasedWaktuMulai, timeFormatter)
+                    val timeSelesai = LocalTime.parse(dataBasedWaktuSelesai, timeFormatter)
 
                     var fromDateTime = LocalDateTime.of(
                         when {

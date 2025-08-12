@@ -22,12 +22,14 @@ import com.example.stationbottle.service.convertUtcToWIB
 import com.example.stationbottle.models.UserViewModel
 import com.example.stationbottle.ui.screens.component.BarchartWithSolidBars
 import com.example.stationbottle.ui.screens.component.DatePickerOutlinedField
+import com.example.stationbottle.ui.screens.component.MPLineChartForDailyIntake
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.*
 import kotlin.collections.forEach
 import kotlin.math.abs
+import kotlin.math.ceil
 
 @Composable
 fun HistoryScreen() {
@@ -42,6 +44,9 @@ fun HistoryScreen() {
     var todayData by remember { mutableStateOf<List<SensorData>?>(null) }
     var todayList = remember { linkedMapOf<String, Double>() }
     var totalPerDay = remember { linkedMapOf<String, Double>() }
+
+    var todayMaxYAxisValue by remember { mutableDoubleStateOf(0.0) }
+    var historicalMaxYAxisValue by remember { mutableDoubleStateOf(0.0) }
 
     LaunchedEffect(user) {
         if (user?.waktu_mulai != null && user.waktu_selesai != null
@@ -69,11 +74,14 @@ fun HistoryScreen() {
 
         todayData?.forEach { sensorData ->
             if (sensorData.previous_weight != 0.0 && sensorData.previous_weight > sensorData.weight) {
-                val waktu = convertUtcToWIB(sensorData.created_at, timeOnly = true).toString()
+                val waktu = convertUtcToWIB(sensorData.created_at, timeOnly = true).toString().substring(0, 5)
                 val minum = abs(sensorData.previous_weight - sensorData.weight)
                 todayList[waktu] = minum
             }
         }
+
+        val maxToday = todayList.values.maxOrNull() ?: 0.0
+        todayMaxYAxisValue = (ceil(maxToday / 125.0) * 125.0).coerceAtLeast(250.0)
     }
 
     LaunchedEffect(fromDate, toDate) {
@@ -105,6 +113,9 @@ fun HistoryScreen() {
                     Toast.makeText(context, "Tidak Ada Data Pada Tanggal Ini", Toast.LENGTH_SHORT).show()
                 }
             }
+
+            val maxHistorical = totalPerDay.values.maxOrNull() ?: 0.0
+            historicalMaxYAxisValue = (ceil(maxHistorical / 500.0) * 500.0).coerceAtLeast(1000.0)
         }
     }
 
@@ -157,7 +168,12 @@ fun HistoryScreen() {
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        BarchartWithSolidBars(todayList)
+                        MPLineChartForDailyIntake(
+                            dailyIntakeData = todayList,
+                            colorInput = android.graphics.Color.rgb(0x00, 0x55, 0x7C),
+                            globalMaxYAxisValue = todayMaxYAxisValue.toFloat(),
+                            isDaily = false
+                        )
                     }
                 }
             } else {
@@ -234,7 +250,12 @@ fun HistoryScreen() {
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            BarchartWithSolidBars(totalPerDay)
+                            MPLineChartForDailyIntake(
+                                dailyIntakeData = totalPerDay,
+                                colorInput = android.graphics.Color.rgb(0x00, 0x55, 0x7C),
+                                globalMaxYAxisValue = historicalMaxYAxisValue.toFloat(),
+                                isDaily = true
+                            )
                         }
                     }
                 } else {

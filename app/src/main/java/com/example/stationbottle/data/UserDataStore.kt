@@ -4,10 +4,13 @@ import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 val Context.userDataStore by preferencesDataStore(name = "user_data_store")
 
@@ -27,7 +30,11 @@ object UserDataStore {
     private val WAKTU_SELESAI_KEY = stringPreferencesKey("user_waktu_selesai")
     private val FREKUENSI_NOTIFIKASI_KEY = intPreferencesKey("user_frekuensi_notifikasi")
     private val RFID_TAG_KEY = stringPreferencesKey("user_rfid_tag")
+    private val ID_KELURAHAN_KEY = stringPreferencesKey("user_id_kelurahan")
+    private val DEVICE_ID_KEY = stringPreferencesKey("user_device_id")
+
     private val DARK_MODE_KEY = booleanPreferencesKey("dark_mode")
+
     private val MINUM_AKHIR_KEY = doublePreferencesKey("minum_akhir")
     private val WAKTU_AKHIR_KEY = stringPreferencesKey("waktu_akhir")
     private val PREDIKSI_MINUM_KEY = stringPreferencesKey("prediksi_minum")
@@ -37,6 +44,12 @@ object UserDataStore {
     private val TOTAL_PREDIKSI_KEY = doublePreferencesKey("total_prediksi")
     private val TOTAL_AKTUAL_KEY = doublePreferencesKey("total_aktual")
     private val DATE_PREDIKSI_KEY = stringPreferencesKey("date_prediksi")
+    private val PREDIKSI_AIR_WHOLE_KEY = stringPreferencesKey("prediksi_air_whole")
+    private val PREDIKSI_WAKTU_WHOLE_KEY = stringPreferencesKey("prediksi_waktu_whole")
+    private val TOTAL_PREDIKSI_WHOLE_KEY = doublePreferencesKey("total_prediksi_whole")
+
+    private val WEEKLY_PREDICTION_KEY = stringPreferencesKey("weekly_prediction")  // 7 hari ke depan
+    private val WEEKLY_HISTORY_KEY = stringPreferencesKey("weekly_history")        // 7 hari ke belakang
 
     suspend fun saveDarkMode(context: Context, isDarkMode: Boolean) {
         context.userDataStore.edit { preferences ->
@@ -63,6 +76,9 @@ object UserDataStore {
             preferences[TOTAL_PREDIKSI_KEY] = userPrediksi.totalPrediksi ?: 0.0
             preferences[TOTAL_AKTUAL_KEY] = userPrediksi.totalAktual ?: 0.0
             preferences[DATE_PREDIKSI_KEY] = userPrediksi.datePrediksi
+            preferences[PREDIKSI_WAKTU_WHOLE_KEY] = gson.toJson(userPrediksi.prediksiWaktuWhole)
+            preferences[PREDIKSI_AIR_WHOLE_KEY] = gson.toJson(userPrediksi.prediksiAirWhole)
+            preferences[TOTAL_PREDIKSI_WHOLE_KEY] = userPrediksi.totalPrediksiWhole ?: 0.0
         }
     }
 
@@ -106,11 +122,37 @@ object UserDataStore {
                     doubleArrayOf()
                 }
 
+                val prediksiWaktuWholeJson = preferences[PREDIKSI_WAKTU_WHOLE_KEY]
+                val prediksiAirWholeJson = preferences[PREDIKSI_AIR_WHOLE_KEY]
+
+                val prediksiWaktuWhole: Array<Double> = try {
+                    if (prediksiWaktuJson != null) {
+                        gson.fromJson(prediksiWaktuWholeJson, Array<Double>::class.java)
+                    } else {
+                        emptyArray()
+                    }
+                } catch (e: Exception) {
+                    println(e)
+                    emptyArray()
+                }
+
+                val prediksiAirWhole: DoubleArray = try {
+                    if (prediksiMinumJson != null) {
+                        gson.fromJson(prediksiAirWholeJson, DoubleArray::class.java)
+                    } else {
+                        doubleArrayOf()
+                    }
+                } catch (e: Exception) {
+                    println(e)
+                    doubleArrayOf()
+                }
+
                 val waktuPredMulai = preferences[WAKTU_PREDIKSI_MULAI_KEY]
                 val waktuPredSelesai = preferences[WAKTU_PREDIKSI_SELESAI_KEY]
                 val totalPrediksi = preferences[TOTAL_PREDIKSI_KEY]
                 val totalAktual = preferences[TOTAL_AKTUAL_KEY]
                 val datePrediksi = preferences[DATE_PREDIKSI_KEY]
+                val totalPrediksiWhole = preferences[TOTAL_PREDIKSI_WHOLE_KEY]
 
                 UserPrediksi(
                     waktuAkhir = waktuAkhir.toString(),
@@ -121,9 +163,55 @@ object UserDataStore {
                     waktuPredSelesai = waktuPredSelesai.toString(),
                     totalPrediksi = totalPrediksi,
                     totalAktual = totalAktual,
-                    datePrediksi = datePrediksi.toString()
+                    datePrediksi = datePrediksi.toString(),
+                    prediksiWaktuWhole = prediksiWaktuWhole,
+                    prediksiAirWhole = prediksiAirWhole,
+                    totalPrediksiWhole = totalPrediksiWhole
                 )
             }
+    }
+
+    suspend fun saveWeeklyPrediction(context: Context, data: WeeklyPredictionEntry) {
+        val json = Gson().toJson(data)
+        context.userDataStore.edit { preferences ->
+            preferences[WEEKLY_PREDICTION_KEY] = json
+        }
+    }
+
+    fun getWeeklyPrediction(context: Context): Flow<WeeklyPredictionEntry?> {
+        return context.userDataStore.data.map { preferences ->
+            val json = preferences[WEEKLY_PREDICTION_KEY] ?: return@map null
+
+            try {
+                val type = object : TypeToken<WeeklyPredictionEntry>() {}.type
+                Gson().fromJson(json, type)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
+    }
+
+
+    suspend fun saveWeeklyHistory(context: Context, data: HistoryWeeklyEntry) {
+        val json = Gson().toJson(data)
+        context.userDataStore.edit { preferences ->
+            preferences[WEEKLY_HISTORY_KEY] = json
+        }
+    }
+
+    fun getWeeklyHistory(context: Context): Flow<HistoryWeeklyEntry?> {
+        return context.userDataStore.data.map { preferences ->
+            val json = preferences[WEEKLY_HISTORY_KEY] ?: return@map null
+
+            try {
+                val type = object : TypeToken<HistoryWeeklyEntry>() {}.type
+                Gson().fromJson(json, type)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
     }
 
     // Fungsi untuk menyimpan token
@@ -144,6 +232,8 @@ object UserDataStore {
             preferences[WAKTU_SELESAI_KEY] = user.waktu_selesai ?: ""
             preferences[RFID_TAG_KEY] = user.rfid_tag ?: ""
             preferences[FREKUENSI_NOTIFIKASI_KEY] = user.frekuensi_notifikasi ?: 0
+            preferences[ID_KELURAHAN_KEY] = user.id_kelurahan ?: ""
+            preferences[DEVICE_ID_KEY] = user.device_id ?: ""
         }
     }
 
@@ -172,6 +262,8 @@ object UserDataStore {
                 val waktu_selesai = preferences[WAKTU_SELESAI_KEY] ?: ""
                 val rfid_tag = preferences[RFID_TAG_KEY] ?: ""
                 val frekuensi_notifikasi = preferences[FREKUENSI_NOTIFIKASI_KEY] ?: 0
+                val id_kelurahan = preferences[ID_KELURAHAN_KEY]
+                val device_id = preferences[DEVICE_ID_KEY]
 
                 if (token != null && id != null && email != null) {
                     User(
@@ -189,7 +281,9 @@ object UserDataStore {
                         waktu_mulai = waktu_mulai,
                         waktu_selesai = waktu_selesai,
                         rfid_tag = rfid_tag,
-                        frekuensi_notifikasi = frekuensi_notifikasi
+                        frekuensi_notifikasi = frekuensi_notifikasi,
+                        id_kelurahan = id_kelurahan,
+                        device_id = device_id,
                     )
                 } else {
                     null
@@ -213,6 +307,8 @@ object UserDataStore {
             preferences.remove(WAKTU_MULAI_KEY)
             preferences.remove(WAKTU_SELESAI_KEY)
             preferences.remove(FREKUENSI_NOTIFIKASI_KEY)
+            preferences.remove(ID_KELURAHAN_KEY)
+            preferences.remove(DEVICE_ID_KEY)
             preferences.remove(RFID_TAG_KEY)
             preferences.remove(MINUM_AKHIR_KEY)
             preferences.remove(WAKTU_AKHIR_KEY)
@@ -222,6 +318,8 @@ object UserDataStore {
             preferences.remove(WAKTU_PREDIKSI_SELESAI_KEY)
             preferences.remove(TOTAL_PREDIKSI_KEY)
             preferences.remove(TOTAL_AKTUAL_KEY)
+            preferences.remove(WEEKLY_HISTORY_KEY)
+            preferences.remove(WEEKLY_PREDICTION_KEY)
         }
     }
 }

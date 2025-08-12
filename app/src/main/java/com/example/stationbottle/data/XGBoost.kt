@@ -131,7 +131,7 @@ class XGBoost(
     private val DECAY_WEIGHTS = 7
     private val DECAY_DIVIDER = 1
 
-    private val features = listOf(
+    private var features = listOf(
 //        "ordinalDate",
 //        "sinDayOfWeek", "cosDayOfWeek",
 //        "sinTimeBucket", "cosTimeBucket",
@@ -158,8 +158,28 @@ class XGBoost(
         waktu: Array<String>,
         jumlahAir: DoubleArray,
         minumPerJam: MutableMap<Int, MutableList<Double>>,
-        maxIterasi: Int
+        maxIterasi: Int,
+        syaratHistory: Boolean = true
     ): TrainingEvaluationResults? {
+
+        if (!syaratHistory) {
+            features = listOf(
+        //        "ordinalDate",
+                "sinDayOfWeek", "cosDayOfWeek",
+                "sinTimeBucket", "cosTimeBucket",
+        //                "sinTimeDayInteraction", "cosTimeDayInteraction",
+        //        "isPuasa",
+        //        "jamFreqZscore",
+                "jamFreqZscoreDecay",
+        //        "puasaTimeInteraction",
+        //        "puasaDecayInteraction",
+        //                "sinDayHourInteraction", "cosDayHourInteraction",
+        //        "sinHour", "cosHour",
+        //        "isWeekend",
+                "isMealTime",
+                "mealType"
+            )
+        }
 
         val waktuDetik = waktu.map {
             LocalTime.parse(it).toSecondOfDay().toDouble()

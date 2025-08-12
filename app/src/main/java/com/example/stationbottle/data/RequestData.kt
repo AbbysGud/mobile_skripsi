@@ -33,10 +33,13 @@ data class UpdateUserRequest(
     val daily_goal: Double? = null,
     val waktu_mulai: String? = null,
     val waktu_selesai: String? = null,
-    val frekuensi_notifikasi: Int? = null
+    val frekuensi_notifikasi: Int? = null,
+    val id_kelurahan: Int? = null,
+    val device_id: String? = null,
 )
 
 data class ModeRequest(
     val message: String,
-    val user_id: Int
+    val user_id: Int,
+    val device_id: String,
 )

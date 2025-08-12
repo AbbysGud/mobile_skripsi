@@ -35,9 +35,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.stationbottle.R
 import com.example.stationbottle.ThemeViewModelFactory
+import com.example.stationbottle.client.RetrofitClient
+import com.example.stationbottle.data.Kecamatan
+import com.example.stationbottle.data.Kelurahan
+import com.example.stationbottle.data.Kota
+import com.example.stationbottle.data.Provinsi
+import com.example.stationbottle.data.RegionData
 import com.example.stationbottle.data.UpdateUserRequest
+import com.example.stationbottle.data.User
 import com.example.stationbottle.models.ThemeViewModel
 import com.example.stationbottle.models.UserViewModel
+import com.example.stationbottle.models.WilayahViewModel
 import com.example.stationbottle.ui.screens.component.DatePickerOutlinedField
 import com.example.stationbottle.ui.screens.component.OutlinedDropdownMenuBox
 import com.example.stationbottle.ui.screens.component.TargetDailyGoalInfoDialog
@@ -59,6 +67,7 @@ fun ProfileScreen(
     val isDarkTheme = themeViewModel.isDarkMode.collectAsState(initial = false)
 
     val userViewModel = UserViewModel()
+    val wilayahViewModel = WilayahViewModel()
     val userState = userViewModel.getUser(context).collectAsState(initial = null)
     val user = userState.value
     val token = user?.token
@@ -76,6 +85,22 @@ fun ProfileScreen(
     var breastfeedingDate by remember { mutableStateOf<String?>(null) }
     var frekuensiNotifikasi by remember { mutableStateOf<Int?>(null) }
     var showTargetInfoDialog by remember { mutableStateOf(false) }
+    var deviceId by remember { mutableStateOf<String?>(null) }
+
+    var selectedProvinsiId by remember { mutableStateOf<Int?>(null) }
+    var selectedKotaId by remember { mutableStateOf<Int?>(null) }
+    var selectedKecamatanId by remember { mutableStateOf<Int?>(null) }
+    var selectedKelurahanId by remember { mutableStateOf<Int?>(null) }
+
+    var selectedProvinsiName by remember { mutableStateOf<String?>(null) }
+    var selectedKotaName by remember { mutableStateOf<String?>(null) }
+    var selectedKecamatanName by remember { mutableStateOf<String?>(null) }
+    var selectedKelurahanName by remember { mutableStateOf<String?>(null) }
+
+    var provinsiList by remember { mutableStateOf<List<Provinsi>>(emptyList()) }
+    var kotaList by remember { mutableStateOf<List<Kota>>(emptyList()) }
+    var kecamatanList by remember { mutableStateOf<List<Kecamatan>>(emptyList()) }
+    var kelurahanList by remember { mutableStateOf<List<Kelurahan>>(emptyList()) }
 
     var timeType by remember { mutableStateOf("Menit") }
     var hours by remember { mutableIntStateOf(0) }
@@ -88,6 +113,7 @@ fun ProfileScreen(
             isLoading = true
 
             userViewModel.getUserData(context, it.id, token.toString())
+
             name = it.name
             email = it.email
             dateOfBirth = it.date_of_birth
@@ -100,6 +126,7 @@ fun ProfileScreen(
             pregnancyDate = it.pregnancy_date
             breastfeedingDate = it.breastfeeding_date
             frekuensiNotifikasi = it.frekuensi_notifikasi
+            deviceId = it.device_id
             hours = frekuensiNotifikasi?.div(3600) ?: 0
             minutes = (frekuensiNotifikasi?.rem(3600))?.div(60) ?: 0
             timeType = when {
@@ -107,6 +134,27 @@ fun ProfileScreen(
                 hours > 0 -> "Jam"
                 else -> "Menit"
             }
+            val idKelurahan = it.id_kelurahan
+
+            if (!idKelurahan.isNullOrEmpty()) {
+
+                val daerahResponse = RetrofitClient.apiService.getDaerahByKelurahan(idKelurahan.toInt())
+
+                daerahResponse.data.let { daerah ->
+                    if (daerah != null) {
+                        selectedProvinsiId = daerah.id_provinsi
+                        selectedProvinsiName = daerah.nama_provinsi
+                        selectedKotaId = daerah.id_kota
+                        selectedKotaName = daerah.nama_kota
+                        selectedKecamatanId = daerah.id_kecamatan
+                        selectedKecamatanName = daerah.nama_kecamatan
+                        selectedKelurahanId = daerah.id_kelurahan
+                        selectedKelurahanName = daerah.nama_kelurahan
+                    }
+                }
+            }
+
+            provinsiList = wilayahViewModel.getAllProvinsi()
 
             isLoading = false
         }
@@ -220,6 +268,108 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                OutlinedDropdownMenuBox(
+                    label = "Pilih Provinsi",
+                    selectedOption = selectedProvinsiName ?: "Pilih Provinsi",
+                    options = provinsiList.map { it.nama.toString() },
+                    enabled = provinsiList.isNotEmpty()
+                ) { selectedName ->
+                    val selected = provinsiList.find { it.nama == selectedName }
+                    if (selected != null && selectedProvinsiId != selected.id) { // Cek perubahan ID
+                        selectedProvinsiId = selected.id
+                        selectedProvinsiName = selected.nama
+                        selectedKotaId = null // Reset kota, kecamatan, kelurahan
+                        selectedKotaName = null
+                        selectedKecamatanId = null
+                        selectedKecamatanName = null
+                        selectedKelurahanId = null
+                        selectedKelurahanName = null
+                        kotaList = emptyList()
+                        kecamatanList = emptyList()
+                        kelurahanList = emptyList()
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                LaunchedEffect(selectedProvinsiId) {
+                    selectedProvinsiId?.let { provId ->
+                        kotaList = wilayahViewModel.getKotaByProvinsi(provId)
+                    }
+                }
+                OutlinedDropdownMenuBox(
+                    label = "Pilih Kota/Kabupaten",
+                    selectedOption = selectedKotaName ?: "Pilih Kota/Kabupaten",
+                    options = kotaList.map { it.nama.toString() },
+                    enabled = selectedProvinsiId != null && kotaList.isNotEmpty()
+                ) { selectedName ->
+                    val selected = kotaList.find { it.nama == selectedName }
+                    if (selected != null && selectedKotaId != selected.id) {
+                        selectedKotaId = selected.id
+                        selectedKotaName = selected.nama
+                        selectedKecamatanId = null // Reset kecamatan, kelurahan
+                        selectedKecamatanName = null
+                        selectedKelurahanId = null
+                        selectedKelurahanName = null
+                        kecamatanList = emptyList()
+                        kelurahanList = emptyList()
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                LaunchedEffect(selectedKotaId) {
+                    selectedKotaId?.let { kotaId ->
+                        kecamatanList = wilayahViewModel.getKecamatanByKota(kotaId)
+                    }
+                }
+                OutlinedDropdownMenuBox(
+                    label = "Pilih Kecamatan",
+                    selectedOption = selectedKecamatanName ?: "Pilih Kecamatan",
+                    options = kecamatanList.map { it.nama.toString() },
+                    enabled = selectedKotaId != null && kecamatanList.isNotEmpty()
+                ) { selectedName ->
+                    val selected = kecamatanList.find { it.nama == selectedName }
+                    if (selected != null && selectedKecamatanId != selected.id) {
+                        selectedKecamatanId = selected.id
+                        selectedKecamatanName = selected.nama
+                        selectedKelurahanId = null // Reset kelurahan
+                        selectedKelurahanName = null
+                        kelurahanList = emptyList()
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                LaunchedEffect(selectedKecamatanId) {
+                    selectedKecamatanId?.let { kecId ->
+                        kelurahanList = wilayahViewModel.getKelurahanByKecamatan(kecId)
+                    }
+                }
+                OutlinedDropdownMenuBox(
+                    label = "Pilih Kelurahan/Desa",
+                    selectedOption = selectedKelurahanName ?: "Pilih Kelurahan/Desa",
+                    options = kelurahanList.map { it.nama.toString() },
+                    enabled = selectedKecamatanId != null && kelurahanList.isNotEmpty()
+                ) { selectedName ->
+                    val selected = kelurahanList.find { it.nama == selectedName }
+                    if (selected != null) {
+                        selectedKelurahanId = selected.id
+                        selectedKelurahanName = selected.nama
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = deviceId?.ifEmpty { "" } ?: "",
+                    onValueChange = { deviceId = it },
+                    label = { Text("ID Device (Mac Address)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 if (gender == "female") {
                     DatePickerOutlinedField(
                         label = "Tanggal Kehamilan (Opsional)",
@@ -278,7 +428,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Frekuensi Waktu
                 Text(
                     text = "Frekuensi Notifikasi",
                     fontSize = 14.sp,
@@ -399,7 +548,9 @@ fun ProfileScreen(
                                 waktu_selesai = waktu_selesai,
                                 pregnancy_date = pregnancyDate,
                                 breastfeeding_date = breastfeedingDate,
-                                frekuensi_notifikasi = frekuensi_notifikasi
+                                frekuensi_notifikasi = frekuensi_notifikasi,
+                                id_kelurahan = selectedKelurahanId,
+                                device_id = deviceId
                             )
 
                             userViewModel.updateUser(

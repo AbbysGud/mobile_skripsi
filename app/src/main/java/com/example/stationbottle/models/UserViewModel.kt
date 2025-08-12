@@ -7,7 +7,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.example.stationbottle.client.RetrofitClient.apiService
+import com.example.stationbottle.data.DaerahResponse
+import com.example.stationbottle.data.Kecamatan
+import com.example.stationbottle.data.Kelurahan
+import com.example.stationbottle.data.KodeResponse
+import com.example.stationbottle.data.Kota
 import com.example.stationbottle.data.LoginRequest
+import com.example.stationbottle.data.Provinsi
 import com.example.stationbottle.data.RegisterRequest
 import com.example.stationbottle.data.UpdateUserRequest
 import com.example.stationbottle.data.User
@@ -70,7 +76,9 @@ class UserViewModel : ViewModel() {
                             waktu_mulai = loginResponse.data.waktu_mulai,
                             waktu_selesai = loginResponse.data.waktu_selesai,
                             rfid_tag = loginResponse.data.rfid_tag,
-                            frekuensi_notifikasi = loginResponse.data.frekuensi_notifikasi
+                            frekuensi_notifikasi = loginResponse.data.frekuensi_notifikasi,
+                            id_kelurahan = loginResponse.data.id_kelurahan,
+                            device_id = loginResponse.data.device_id,
                         )
                         userViewModel.saveUser(context, user)
                         withContext(Dispatchers.Main) {
@@ -214,7 +222,9 @@ class UserViewModel : ViewModel() {
                     waktu_mulai = response.data.waktu_mulai,
                     waktu_selesai = response.data.waktu_selesai,
                     rfid_tag = response.data.rfid_tag,
-                    frekuensi_notifikasi = response.data.frekuensi_notifikasi
+                    frekuensi_notifikasi = response.data.frekuensi_notifikasi,
+                    id_kelurahan = response.data.id_kelurahan,
+                    device_id = response.data.device_id
                 )
                 saveUser(context, user)
             } catch (e: Exception) {
@@ -248,6 +258,8 @@ class UserViewModel : ViewModel() {
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     null
                 )
                 val updatedUser = currentUser.copy(
@@ -262,7 +274,9 @@ class UserViewModel : ViewModel() {
                     waktu_mulai = response.data.waktu_mulai,
                     waktu_selesai = response.data.waktu_selesai,
                     rfid_tag = response.data.rfid_tag,
-                    frekuensi_notifikasi = response.data.frekuensi_notifikasi
+                    frekuensi_notifikasi = response.data.frekuensi_notifikasi,
+                    id_kelurahan = response.data.id_kelurahan,
+                    device_id = response.data.device_id,
                 )
                 saveUser(context, updatedUser)
                 withContext(Dispatchers.Main) {

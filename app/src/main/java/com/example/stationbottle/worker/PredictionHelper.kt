@@ -43,6 +43,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.Flow
+import kotlin.collections.linkedMapOf
 
 val Context.appPreferencesDataStore: DataStore<Preferences> by preferencesDataStore(name = "app_preferences")
 
@@ -76,7 +77,10 @@ object AppPreferences {
 }
 
 suspend fun saveXGBoostModel(context: Context, model: XGBoost, idUser: Int) = withContext(Dispatchers.IO) {
-    val modelFileName = "xgboost_model_$idUser.json"
+    var modelFileName = "xgboost_model_$idUser.json"
+    if (idUser == 0) {
+        modelFileName = "baseline_model.json"
+    }
     val file = File(context.filesDir, modelFileName)
     val jsonString = Json.encodeToString(SerializableXGBoostModel.serializer(), model.toSerializableModel())
     FileOutputStream(file).use {
@@ -86,7 +90,10 @@ suspend fun saveXGBoostModel(context: Context, model: XGBoost, idUser: Int) = wi
 }
 
 suspend fun loadXGBoostModel(context: Context, idUser: Int): XGBoost? = withContext(Dispatchers.IO) {
-    val modelFileName = "xgboost_model_$idUser.json"
+    var modelFileName = "xgboost_model_$idUser.json"
+    if (idUser == 0) {
+        modelFileName = "baseline_model.json"
+    }
     val file = File(context.filesDir, modelFileName)
     if (!file.exists()) {
         println("File model tidak ditemukan: $modelFileName")
@@ -137,6 +144,7 @@ suspend fun calculatePrediction(
 
     var totalPrediksi: Double = 0.0
     var totalPrediksiTest: Double = 0.0
+    var totalPrediksiWhole: Double = 0.0
 
     var lolosSyaratHistory = false
 
@@ -234,7 +242,7 @@ suspend fun calculatePrediction(
     }
 
     todayData?.forEach { sensorData ->
-        if (sensorData.previous_weight != 0.0 && sensorData.previous_weight > sensorData.weight) {
+        if (sensorData.previous_weight != 0.0 && sensorData.previous_weight > sensorData.weight && sensorData.previous_weight - sensorData.weight > 5) {
             val tanggal = convertUtcToWIB(sensorData.created_at, includeTime = true).toString()
             tanggalListUser.add(tanggal)
 
@@ -257,10 +265,11 @@ suspend fun calculatePrediction(
     val minumArrayToday = minumListToday.toDoubleArray()
 
     var prediksiListResult = LinkedHashMap<String, Double>()
+    var prediksiListWhole = LinkedHashMap<String, Double>()
 
     if (
         statusHistory &&
-        lolosSyaratHistory &&
+//        lolosSyaratHistory &&
         (waktuMulai != "" && waktuSelesai != "") &&
         (todayDate != prediksiStore.datePrediksi ||
                 minumArrayToday.sum() != prediksiStore.totalAktual ||
@@ -447,25 +456,32 @@ suspend fun calculatePrediction(
 
 //        val idUserList = arrayOf(1, 2, 6)
         val idUserList = arrayOf(idUser)
+//        val idUserList = arrayOf(8)
 
         val todayActualDate = LocalDate.now()
 
-        val shouldRetrain = !modelTrainedStatus ||
-                (todayActualDate.dayOfWeek == DayOfWeek.SUNDAY && lastTrainedDate != todayActualDate.format(formatter))
+//        val shouldRetrain = !modelTrainedStatus ||
+//                (todayActualDate.dayOfWeek == DayOfWeek.SUNDAY && lastTrainedDate != todayActualDate.format(formatter))
+        val shouldRetrain = false
 //        val shouldRetrain = true
 
         if (shouldRetrain) {
             println("Model perlu dilatih ulang atau belum dilatih. Melakukan pelatihan...")
 
-//            val maxDepth = arrayOf(0, 10, 5, 3, 1)
-//            val allGamma = arrayOf(200.0, 50.0, 0.0)
-//            val allLambda = arrayOf(100.0, 10.0, 1.0, 0.0)
-//            val learningRates = arrayOf(0.5, 0.3, 0.1, 0.01)
+//            var maxDepth = arrayOf(0, 10, 5, 3, 1)
+//            var allGamma = arrayOf(200.0, 50.0, 0.0)
+//            var allLambda = arrayOf(100.0, 10.0, 1.0, 0.0)
+//            var learningRates = arrayOf(0.5, 0.3, 0.1, 0.01)
 
-            val maxDepth = arrayOf(10, 5, 3)
-            val allGamma = arrayOf(50.0)
-            val allLambda = arrayOf(10.0, 0.0)
-            val learningRates = arrayOf(0.5, 0.3, 0.1)
+//            var maxDepth = arrayOf(10, 5, 3)
+//            var allGamma = arrayOf(50.0)
+//            var allLambda = arrayOf(10.0, 0.0)
+//            var learningRates = arrayOf(0.5, 0.3, 0.1)
+
+            var maxDepth = arrayOf(10, 3)
+            var allGamma = arrayOf(50.0)
+            var allLambda = arrayOf(10.0, 0.0)
+            var learningRates = arrayOf(0.5, 0.1)
 
             for (idUser in idUserList) {
                 bestSmapeOverall[idUser] = Double.MAX_VALUE
@@ -482,170 +498,173 @@ suspend fun calculatePrediction(
             val waktuArray = allWaktu.toTypedArray()
             val minumArray = allMinum.toDoubleArray()
 
-            for (depth in maxDepth) {
+            if (lolosSyaratHistory || idUser == 8) {
+                for (depth in maxDepth) {
 
-                for (gamma in allGamma) {
+                    for (gamma in allGamma) {
 
-                    for (lambda in allLambda) {
+                        for (lambda in allLambda) {
 
-                        var currentRatePatience = 0
-                        var bestSmapeForCurrentRate = Double.MAX_VALUE
+                            var currentRatePatience = 0
+                            var bestSmapeForCurrentRate = Double.MAX_VALUE
 
-                        for (rate in learningRates) {
+                            for (rate in learningRates) {
 
-                            val currentXGBoost = XGBoost(depth, gamma, lambda, rate)
+                                val currentXGBoost = XGBoost(depth, gamma, lambda, rate)
 
-                            val trainingMetrics = currentXGBoost.latihModel(
-                                tanggal = tanggalArray,
-                                waktu = waktuArray,
-                                jumlahAir = minumArray,
-                                minumPerJam = combinedMinumPerJam,
-                                maxIterasi = 10
-                            )
-
-                            totalPrediksiList.clear()
-
-                            for (idUser in idUserList){
-                                var dayPrediksi = today
-                                var prediksiAirGlobal: DoubleArray = doubleArrayOf(0.0)
-                                var prediksiWaktuGlobal: Array<Double> = arrayOf(0.0)
-                                while (dayPrediksi.isBefore(endDate)) {
-                                    val (prediksiAir, prediksiWaktu) = currentXGBoost.prediksi(
-                                        waktuMulaiMap[idUser]!!,
-                                        waktuSelesaiMap[idUser]!!,
-                                        dayPrediksi.toString(),
-                                        isBedaHari
-                                    )!!
-
-                                    prediksiAirGlobal = prediksiAir
-
-                                    prediksiWaktuGlobal = prediksiWaktu
-
-                                    totalPrediksi = prediksiAir.sum()
-
-                                    totalPrediksiList[dayPrediksi.format(formatter)] = totalPrediksi
-
-                                    dayPrediksi = dayPrediksi.plusDays(1)
-                                }
-
-                                val actualTotal = totalPerDayByUser[idUser]
-                                if (actualTotal == null) {
-                                    println("Data totalPerDay tidak ditemukan untuk user $idUser, menggunakan map kosong.")
-                                }
-
-                                val evaluasi = currentXGBoost.evaluasi(actualTotal ?: linkedMapOf(), totalPrediksiList)
-
-                                println("Evaluasi Data:")
-                                println("   max_depth: $depth | gamma: $gamma | lambda: $lambda | learning_rate: $rate | user: $idUser")
-                                println("   MAE: ${evaluasi.mae} | RMSE: ${evaluasi.rmse} | SMAPE: ${evaluasi.smape} | R2: ${evaluasi.r2}")
-
-                                val currentSmape = evaluasi.smape
-                                val currentR2 = evaluasi.r2
-
-                                if (currentR2 < -1.0) {
-                                    trainingMetrics?.let {
-                                        println("  Training Metrics (Air): MAE=${it.airMetrics.mae} | RMSE=${it.airMetrics.rmse} | SMAPE=${it.airMetrics.smape} | R2=${it.airMetrics.r2}")
-                                        println("  Training Metrics (Waktu): MAE=${it.waktuMetrics.mae} | RMSE=${it.waktuMetrics.rmse} | SMAPE=${it.waktuMetrics.smape} | R2=${it.waktuMetrics.r2}")
-                                    }
-                                    println("Skip: R2 ($currentR2) terlalu kecil (< -1.0) untuk depth=$depth, gamma=$gamma, lambda=$lambda, rate=$rate")
-                                    continue
-                                }
-
-                                if (currentSmape < (bestSmapeOverall[idUser]
-                                        ?: 0.0) || currentR2 > (bestR2Overall[idUser] ?: 0.0)
-                                ) {
-                                    bestSmapeOverall[idUser] = currentSmape
-                                    bestR2Overall[idUser] = currentR2
-                                    bestDepthOverall[idUser] = depth
-                                    bestGammaOverall[idUser] = gamma
-                                    bestLambdaOverall[idUser] = lambda
-                                    bestLearningRateOverall[idUser] = rate
-                                    trainingMetrics?.let {
-                                        bestTrainingMetricsOverall[idUser] = it
-                                    }
-                                    bestPredictionMetricsOverall[idUser] = evaluasi
-
-                                    currentRatePatience = 0
-
-                                    println("BEST MODEL FOUND FOR USER $idUser (depth=$depth, gamma=$gamma, lambda=$lambda, rate=$rate):")
-                                }
-
-                                if (currentSmape < bestSmapeForCurrentRate) {
-                                    bestSmapeForCurrentRate = currentSmape
-                                    currentRatePatience = 0
-                                } else {
-                                    currentRatePatience++
-                                }
-
-                                val fitur = "timeDayInteraction|jamFreqZScoreDecay(14)|hourDayInteraction"
-
-                                simpanKeExcel(
-                                    name = "Evaluasi_Eval",
-                                    context = context,
-                                    depth = depth,
-                                    gamma = gamma,
-                                    lambda = lambda,
-                                    learningRate = rate,
-                                    user = idUser,
-                                    metrics = EvaluationMetrics(evaluasi.smape, evaluasi.mae, evaluasi.rmse, evaluasi.r2),
-                                    fitur = fitur,
-                                    jenis = "Evaluation Data"
+                                val trainingMetrics = currentXGBoost.latihModel(
+                                    tanggal = tanggalArray,
+                                    waktu = waktuArray,
+                                    jumlahAir = minumArray,
+                                    minumPerJam = combinedMinumPerJam,
+                                    maxIterasi = 10,
+                                    syaratHistory = lolosSyaratHistory,
                                 )
 
-                                var dayPrediksiTest = LocalDate.parse("2025-05-29")
-                                var prediksiAirGlobalTest: DoubleArray = doubleArrayOf(0.0)
-                                var prediksiWaktuGlobalTest: Array<Double> = arrayOf(0.0)
+                                totalPrediksiList.clear()
 
-                                totalPrediksiListTest.clear()
+                                for (idUser in idUserList){
+                                    var dayPrediksi = today
+                                    var prediksiAirGlobal: DoubleArray = doubleArrayOf(0.0)
+                                    var prediksiWaktuGlobal: Array<Double> = arrayOf(0.0)
+                                    while (dayPrediksi.isBefore(endDate)) {
+                                        val (prediksiAir, prediksiWaktu) = currentXGBoost.prediksi(
+                                            waktuMulaiMap[idUser]!!,
+                                            waktuSelesaiMap[idUser]!!,
+                                            dayPrediksi.toString(),
+                                            isBedaHari
+                                        )!!
 
-                                while (dayPrediksiTest.isBefore(LocalDate.parse("2025-06-08"))) {
-                                    val (prediksiAirTest, prediksiWaktuTest) = currentXGBoost.prediksi(
-                                        waktuMulaiMap[idUser]!!,
-                                        waktuSelesaiMap[idUser]!!,
-                                        dayPrediksiTest.toString(),
-                                        isBedaHari
-                                    )!!
+                                        prediksiAirGlobal = prediksiAir
 
-                                    prediksiAirGlobalTest = prediksiAirTest
+                                        prediksiWaktuGlobal = prediksiWaktu
 
-                                    prediksiWaktuGlobalTest = prediksiWaktuTest
+                                        totalPrediksi = prediksiAir.sum()
 
-                                    totalPrediksiTest = prediksiAirTest.sum()
+                                        totalPrediksiList[dayPrediksi.format(formatter)] = totalPrediksi
 
-                                    totalPrediksiListTest[dayPrediksiTest.format(formatter)] = totalPrediksiTest
+                                        dayPrediksi = dayPrediksi.plusDays(1)
+                                    }
 
-                                    dayPrediksiTest = dayPrediksiTest.plusDays(1)
+                                    val actualTotal = totalPerDayByUser[idUser]
+                                    if (actualTotal == null) {
+                                        println("Data totalPerDay tidak ditemukan untuk user $idUser, menggunakan map kosong.")
+                                    }
+
+                                    val evaluasi = currentXGBoost.evaluasi(actualTotal ?: linkedMapOf(), totalPrediksiList)
+
+                                    println("Evaluasi Data:")
+                                    println("   max_depth: $depth | gamma: $gamma | lambda: $lambda | learning_rate: $rate | user: $idUser")
+                                    println("   MAE: ${evaluasi.mae} | RMSE: ${evaluasi.rmse} | SMAPE: ${evaluasi.smape} | R2: ${evaluasi.r2}")
+
+                                    val currentSmape = evaluasi.smape
+                                    val currentR2 = evaluasi.r2
+
+                                    if (currentR2 < -1.0) {
+                                        trainingMetrics?.let {
+                                            println("  Training Metrics (Air): MAE=${it.airMetrics.mae} | RMSE=${it.airMetrics.rmse} | SMAPE=${it.airMetrics.smape} | R2=${it.airMetrics.r2}")
+                                            println("  Training Metrics (Waktu): MAE=${it.waktuMetrics.mae} | RMSE=${it.waktuMetrics.rmse} | SMAPE=${it.waktuMetrics.smape} | R2=${it.waktuMetrics.r2}")
+                                        }
+                                        println("Skip: R2 ($currentR2) terlalu kecil (< -1.0) untuk depth=$depth, gamma=$gamma, lambda=$lambda, rate=$rate")
+                                        continue
+                                    }
+
+                                    if (currentSmape < (bestSmapeOverall[idUser]
+                                            ?: 0.0) || currentR2 > (bestR2Overall[idUser] ?: 0.0)
+                                    ) {
+                                        bestSmapeOverall[idUser] = currentSmape
+                                        bestR2Overall[idUser] = currentR2
+                                        bestDepthOverall[idUser] = depth
+                                        bestGammaOverall[idUser] = gamma
+                                        bestLambdaOverall[idUser] = lambda
+                                        bestLearningRateOverall[idUser] = rate
+                                        trainingMetrics?.let {
+                                            bestTrainingMetricsOverall[idUser] = it
+                                        }
+                                        bestPredictionMetricsOverall[idUser] = evaluasi
+
+                                        currentRatePatience = 0
+
+                                        println("BEST MODEL FOUND FOR USER $idUser (depth=$depth, gamma=$gamma, lambda=$lambda, rate=$rate):")
+                                    }
+
+                                    if (currentSmape < bestSmapeForCurrentRate) {
+                                        bestSmapeForCurrentRate = currentSmape
+                                        currentRatePatience = 0
+                                    } else {
+                                        currentRatePatience++
+                                    }
+
+                                    val fitur = "timeDayInteraction|jamFreqZScoreDecay(14)|hourDayInteraction"
+
+                                    simpanKeExcel(
+                                        name = "Evaluasi_Eval",
+                                        context = context,
+                                        depth = depth,
+                                        gamma = gamma,
+                                        lambda = lambda,
+                                        learningRate = rate,
+                                        user = idUser,
+                                        metrics = EvaluationMetrics(evaluasi.smape, evaluasi.mae, evaluasi.rmse, evaluasi.r2),
+                                        fitur = fitur,
+                                        jenis = "Evaluation Data"
+                                    )
+
+                                    var dayPrediksiTest = LocalDate.parse("2025-05-29")
+                                    var prediksiAirGlobalTest: DoubleArray = doubleArrayOf(0.0)
+                                    var prediksiWaktuGlobalTest: Array<Double> = arrayOf(0.0)
+
+                                    totalPrediksiListTest.clear()
+
+                                    while (dayPrediksiTest.isBefore(LocalDate.parse("2025-06-08"))) {
+                                        val (prediksiAirTest, prediksiWaktuTest) = currentXGBoost.prediksi(
+                                            waktuMulaiMap[idUser]!!,
+                                            waktuSelesaiMap[idUser]!!,
+                                            dayPrediksiTest.toString(),
+                                            isBedaHari
+                                        )!!
+
+                                        prediksiAirGlobalTest = prediksiAirTest
+
+                                        prediksiWaktuGlobalTest = prediksiWaktuTest
+
+                                        totalPrediksiTest = prediksiAirTest.sum()
+
+                                        totalPrediksiListTest[dayPrediksiTest.format(formatter)] = totalPrediksiTest
+
+                                        dayPrediksiTest = dayPrediksiTest.plusDays(1)
+                                    }
+
+                                    val actualTotalTest = totalPerDayByUserTest[idUser]
+                                    if (actualTotalTest == null) {
+                                        println("Data totalPerDay tidak ditemukan untuk user $idUser, menggunakan map kosong.")
+                                    }
+
+                                    val evaluasiTest = currentXGBoost.evaluasi(actualTotalTest ?: linkedMapOf(), totalPrediksiListTest)
+
+                                    println("Test Data:")
+                                    println("   max_depth: $depth | gamma: $gamma | lambda: $lambda | learning_rate: $rate | user: $idUser")
+                                    println("   MAE= ${evaluasiTest.mae} | RMSE= ${evaluasiTest.rmse} | SMAPE= ${evaluasiTest.smape} | R2= ${evaluasiTest.r2}")
+
+                                    simpanKeExcel(
+                                        name = "Evaluasi_Uji",
+                                        context = context,
+                                        depth = depth,
+                                        gamma = gamma,
+                                        lambda = lambda,
+                                        learningRate = rate,
+                                        user = idUser,
+                                        metrics = EvaluationMetrics(evaluasiTest.smape, evaluasiTest.mae, evaluasiTest.rmse, evaluasiTest.r2),
+                                        fitur = fitur,
+                                        jenis = "Test Data"
+                                    )
+
+                                    if (currentRatePatience >= maxPatience) {
+                                        println("Skipping remaining rates for depth=$depth, gamma=$gamma, lambda=$lambda due to lack of improvement (Patience limit reached for Rates).")
+                                        break
+                                    }
+
                                 }
-
-                                val actualTotalTest = totalPerDayByUserTest[idUser]
-                                if (actualTotalTest == null) {
-                                    println("Data totalPerDay tidak ditemukan untuk user $idUser, menggunakan map kosong.")
-                                }
-
-                                val evaluasiTest = currentXGBoost.evaluasi(actualTotalTest ?: linkedMapOf(), totalPrediksiListTest)
-
-                                println("Test Data:")
-                                println("   max_depth: $depth | gamma: $gamma | lambda: $lambda | learning_rate: $rate | user: $idUser")
-                                println("   MAE= ${evaluasiTest.mae} | RMSE= ${evaluasiTest.rmse} | SMAPE= ${evaluasiTest.smape} | R2= ${evaluasiTest.r2}")
-
-                                simpanKeExcel(
-                                    name = "Evaluasi_Uji",
-                                    context = context,
-                                    depth = depth,
-                                    gamma = gamma,
-                                    lambda = lambda,
-                                    learningRate = rate,
-                                    user = idUser,
-                                    metrics = EvaluationMetrics(evaluasiTest.smape, evaluasiTest.mae, evaluasiTest.rmse, evaluasiTest.r2),
-                                    fitur = fitur,
-                                    jenis = "Test Data"
-                                )
-
-                                if (currentRatePatience >= maxPatience) {
-                                    println("Skipping remaining rates for depth=$depth, gamma=$gamma, lambda=$lambda due to lack of improvement (Patience limit reached for Rates).")
-                                    break
-                                }
-
                             }
 
                         }
@@ -653,13 +672,20 @@ suspend fun calculatePrediction(
                     }
 
                 }
-
             }
 
-            val finalDepth = bestDepthOverall[idUser] ?: 10
-            val finalGamma = bestGammaOverall[idUser] ?: 50.0
-            val finalLambda = bestLambdaOverall[idUser] ?: 0.0
-            val finalRate = bestLearningRateOverall[idUser] ?: 0.1
+
+            var finalDepth = bestDepthOverall[idUser] ?: 5
+            var finalGamma = bestGammaOverall[idUser] ?: 50.0
+            var finalLambda = bestLambdaOverall[idUser] ?: 0.0
+            var finalRate = bestLearningRateOverall[idUser] ?: 0.3
+
+            if (!lolosSyaratHistory || idUser == 8) {
+                finalDepth = 5
+                finalGamma = 50.0
+                finalLambda = 0.0
+                finalRate = 0.3
+            }
 
             xgboost = XGBoost(finalDepth, finalGamma, finalLambda, finalRate)
             xgboost.latihModel(
@@ -667,23 +693,32 @@ suspend fun calculatePrediction(
                 waktu = waktuArray,
                 jumlahAir = minumArray,
                 minumPerJam = combinedMinumPerJam,
-                maxIterasi = 10
+                maxIterasi = 10,
+                syaratHistory = lolosSyaratHistory
             )
 
-            saveXGBoostModel(context, xgboost, idUser)
+            if (!lolosSyaratHistory || idUser == 8) {
+                saveXGBoostModel(context, xgboost, 0)
+            } else {
+                saveXGBoostModel(context, xgboost, idUser)
+            }
 
             AppPreferences.saveLastTrainedDate(context, todayActualDate.format(formatter))
             AppPreferences.saveModelTrainedStatus(context, true)
         } else {
             println("Model sudah dilatih dan tidak perlu dilatih ulang. Memuat model dari penyimpanan...")
-            xgboost = loadXGBoostModel(context, idUser)
+            if (!lolosSyaratHistory || idUser == 8) {
+                xgboost = loadXGBoostModel(context, 0)
+            } else {
+                xgboost = loadXGBoostModel(context, idUser)
+            }
             if (xgboost == null) {
                 println("Gagal memuat model dari file, melatih ulang sebagai fallback.")
 
-                val defaultDepth = bestDepthOverall[idUser] ?: 10
+                val defaultDepth = bestDepthOverall[idUser] ?: 5
                 val defaultGamma = bestGammaOverall[idUser] ?: 50.0
                 val defaultLambda = bestLambdaOverall[idUser] ?: 0.0
-                val defaultRate = bestLearningRateOverall[idUser] ?: 0.1
+                val defaultRate = bestLearningRateOverall[idUser] ?: 0.3
 
                 xgboost = XGBoost(defaultDepth, defaultGamma, defaultLambda, defaultRate)
                 xgboost.latihModel(
@@ -691,9 +726,14 @@ suspend fun calculatePrediction(
                     waktu = allWaktu.toTypedArray(),
                     jumlahAir = allMinum.toDoubleArray(),
                     minumPerJam = combinedMinumPerJam,
-                    maxIterasi = 10
+                    maxIterasi = 10,
+                    syaratHistory = lolosSyaratHistory
                 )
-                saveXGBoostModel(context, xgboost, idUser)
+                if (!lolosSyaratHistory || idUser == 8) {
+                    saveXGBoostModel(context, xgboost, 0)
+                } else {
+                    saveXGBoostModel(context, xgboost, idUser)
+                }
                 AppPreferences.saveLastTrainedDate(context, todayActualDate.format(formatter))
                 AppPreferences.saveModelTrainedStatus(context, true)
             }
@@ -701,36 +741,30 @@ suspend fun calculatePrediction(
 
         if (xgboost == null) {
             println("Model XGBoost tidak tersedia setelah semua upaya (pelatihan/pemuatan). Mengembalikan hasil kosong.")
-            return PredictionResult(0.0, 0.0, linkedMapOf(), linkedMapOf(), false, null, userWaktuMulai, userWaktuSelesai)
+            return PredictionResult(0.0, 0.0, linkedMapOf(), linkedMapOf(), false, null, userWaktuMulai, userWaktuSelesai, 0.0, linkedMapOf(), false)
         }
 
         xgboost.printFeatureImportanceWithFrequency()
 
-        var waktuPred = waktuMulaiMap[idUser]!!
+        var waktuPred = waktuMulaiMap[idUser] ?: user.waktu_mulai.toString()
         if(todayList.isNotEmpty()){
             waktuPred = waktuArrayToday.last().substring(0, 5)
         }
 
         var dayPrediksi = baseDate.format(formatter)
-        var prediksiAirGlobal: DoubleArray = doubleArrayOf(0.0)
-        var prediksiWaktuGlobal: Array<Double> = arrayOf(0.0)
 
         val (prediksiAir, prediksiWaktu) = xgboost.prediksi(
             waktuPred,
-            waktuSelesaiMap[idUser]!!,
+            waktuSelesaiMap[idUser] ?: user.waktu_selesai.toString(),
             dayPrediksi.toString(),
             isBedaHari
         )!!
-
-        prediksiAirGlobal = prediksiAir
-
-        prediksiWaktuGlobal = prediksiWaktu
 
         totalPrediksi = prediksiAir.sum() + minumArrayToday.sum()
 
         val waktuPrediksiList = mutableListOf<String>()
 
-        val formatterPrediksi = if (waktuMulaiMap[idUser]?.count { it == ':' } == 2) {
+        val formatterPrediksi = if (waktuPred.count { it == ':' } == 2) {
             DateTimeFormatter.ofPattern("HH:mm:ss")
         } else {
             DateTimeFormatter.ofPattern("HH:mm")
@@ -747,10 +781,40 @@ suspend fun calculatePrediction(
             waktuPrediksiList.add(String.format("%02d:%02d:%02d", jam, menit, detik))
         }
 
-
-        println("SAMPE SINI, $prediksiAir")
-
         prediksiListResult = waktuPrediksiList.zip(prediksiAir.asList())
+            .toMap(LinkedHashMap())
+
+        var waktuPredWhole = waktuMulaiMap[idUser] ?: user.waktu_mulai
+        var waktuSelesai = userWaktuSelesai
+        val (prediksiAirWhole, prediksiWaktuWhole) = xgboost.prediksi(
+            waktuPredWhole.toString(),
+            waktuSelesai.toString(),
+            dayPrediksi.toString(),
+            isBedaHari,
+        )!!
+
+        totalPrediksiWhole = prediksiAirWhole.sum()
+
+        val waktuPrediksiWholeList = mutableListOf<String>()
+
+        val formatterPrediksiWhole = if (waktuPredWhole?.count { it == ':' } == 2) {
+            DateTimeFormatter.ofPattern("HH:mm:ss")
+        } else {
+            DateTimeFormatter.ofPattern("HH:mm")
+        }
+
+        val waktuMulaiTimeWhole = LocalTime.parse(waktuPredWhole, formatterPrediksiWhole)
+        var totalDetikWhole = waktuMulaiTimeWhole.toSecondOfDay()
+
+        for (delta in prediksiWaktuWhole) {
+            totalDetikWhole += delta.toInt()
+            val jam = totalDetikWhole / 3600
+            val menit = (totalDetikWhole % 3600) / 60
+            val detik = totalDetikWhole % 60
+            waktuPrediksiWholeList.add(String.format("%02d:%02d:%02d", jam, menit, detik))
+        }
+
+        prediksiListWhole = waktuPrediksiWholeList.zip(prediksiAirWhole.asList())
             .toMap(LinkedHashMap())
 
         UserDataStore.savePrediksi(
@@ -764,10 +828,14 @@ suspend fun calculatePrediction(
                 waktuPredSelesai = waktuSelesai.toString(),
                 totalPrediksi = totalPrediksi,
                 totalAktual = minumArrayToday.sum(),
-                datePrediksi = baseDate.toString()
+                datePrediksi = baseDate.toString(),
+                prediksiWaktuWhole = prediksiWaktuWhole,
+                prediksiAirWhole = prediksiAirWhole,
+                totalPrediksiWhole = totalPrediksiWhole
             )
         )
     } else {
+
         totalPrediksi = prediksiStore.totalPrediksi ?: 0.0
 
         val prediksiAirSum = prediksiStore.prediksiMinum?.sum() ?: 0.0
@@ -800,6 +868,32 @@ suspend fun calculatePrediction(
 
         prediksiListResult = waktuPrediksiList.zip(prediksiStore.prediksiMinum!!.asList())
             .toMap(LinkedHashMap())
+
+        totalPrediksiWhole = prediksiStore.totalPrediksiWhole ?: 0.0
+
+        val waktuPrediksiListWhole = mutableListOf<String>()
+
+        var waktuPredWhole = waktuMulaiUser
+
+        val formatterPrediksiWhole = if (waktuPredWhole.count { it == ':' } == 2) {
+            DateTimeFormatter.ofPattern("HH:mm:ss")
+        } else {
+            DateTimeFormatter.ofPattern("HH:mm")
+        }
+
+        val waktuMulaiTimeWhole = LocalTime.parse(waktuPredWhole, formatterPrediksiWhole)
+        var totalDetikWhole = waktuMulaiTimeWhole.toSecondOfDay()
+
+        for (delta in prediksiStore.prediksiWaktuWhole!!) {
+            totalDetikWhole += delta.toInt()
+            val jam = totalDetikWhole / 3600
+            val menit = (totalDetikWhole % 3600) / 60
+            val detik = totalDetikWhole % 60
+            waktuPrediksiListWhole.add(String.format("%02d:%02d:%02d", jam, menit, detik))
+        }
+
+        prediksiListWhole = waktuPrediksiListWhole.zip(prediksiStore.prediksiAirWhole!!.asList())
+            .toMap(LinkedHashMap())
     }
 
     return PredictionResult(
@@ -810,8 +904,78 @@ suspend fun calculatePrediction(
         statusHistory = statusHistory,
         drinkSessionList = drinkSessionList,
         userWaktuMulai = userWaktuMulai,
-        userWaktuSelesai = userWaktuSelesai
+        userWaktuSelesai = userWaktuSelesai,
+        todayPrediksiWhole = totalPrediksiWhole,
+        prediksiListWhole = prediksiListWhole,
+        syaratHistory = lolosSyaratHistory
     )
+}
+
+suspend fun predictWholeDay(
+    context: Context,
+    user: User,
+    fromDate: String,
+    userWaktuMulai: LocalTime,
+    userWaktuSelesai: LocalTime,
+    syaratHistory: Boolean = true
+): LinkedHashMap<String, Double> {
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
+    var xgboost = loadXGBoostModel(context, user.id)
+
+    if (!syaratHistory || user.id == 8){
+        xgboost = loadXGBoostModel(context, 0)
+    }
+
+    if (xgboost != null) {
+        var isBedaHari = false
+        if(dateFormat.parse(user.waktu_mulai)!!.time > dateFormat.parse(user.waktu_selesai)!!.time){
+            isBedaHari = true
+        }
+
+        var baseDate = LocalDate.parse(fromDate, formatter)
+
+        var waktuPred = userWaktuMulai.toString()
+
+        var dayPrediksi = baseDate.format(formatter)
+
+        val (prediksiAir, prediksiWaktu) = xgboost.prediksi(
+            waktuPred.toString(),
+            userWaktuSelesai.toString(),
+            dayPrediksi.toString(),
+            isBedaHari
+        )!!
+
+        prediksiAir.forEach { println(it) }
+        prediksiWaktu.forEach { println(it) }
+//        println(prediksiAir)
+//        println(prediksiWaktu)
+
+        val waktuPrediksiList = mutableListOf<String>()
+
+        val formatterPrediksi = if (waktuPred.count { it == ':' } == 2) {
+            DateTimeFormatter.ofPattern("HH:mm:ss")
+        } else {
+            DateTimeFormatter.ofPattern("HH:mm")
+        }
+
+        val waktuMulaiTime = LocalTime.parse(waktuPred, formatterPrediksi)
+        var totalDetik = waktuMulaiTime.toSecondOfDay()
+
+        for (delta in prediksiWaktu) {
+            totalDetik += delta.toInt()
+            val jam = totalDetik / 3600
+            val menit = (totalDetik % 3600) / 60
+            val detik = totalDetik % 60
+            waktuPrediksiList.add(String.format("%02d:%02d:%02d", jam, menit, detik))
+        }
+
+        return waktuPrediksiList.zip(prediksiAir.asList())
+            .toMap(LinkedHashMap())
+    } else {
+        return linkedMapOf()
+    }
 }
 
 fun testTime(

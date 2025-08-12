@@ -1,13 +1,22 @@
 package com.example.stationbottle.service
 
+import com.example.stationbottle.data.DaerahResponse
 import com.example.stationbottle.data.ForgotPasswordRequest
+import com.example.stationbottle.data.Kecamatan
+import com.example.stationbottle.data.Kelurahan
+import com.example.stationbottle.data.KodeResponse
+import com.example.stationbottle.data.Kota
+import com.example.stationbottle.data.LatestDataResponse
 import com.example.stationbottle.data.LoginRequest
 import com.example.stationbottle.data.LoginResponse
 import com.example.stationbottle.data.ModeRequest
 import com.example.stationbottle.data.NGROKResponse
+import com.example.stationbottle.data.Provinsi
+import com.example.stationbottle.data.RegionData
 import com.example.stationbottle.data.RegisterRequest
 import com.example.stationbottle.data.ResetPasswordRequest
 import com.example.stationbottle.data.SensorDataResponse
+import com.example.stationbottle.data.SuhuResponse
 import com.example.stationbottle.data.UpdateUserRequest
 import com.example.stationbottle.data.UserResponse
 import kotlinx.coroutines.delay
@@ -83,6 +92,30 @@ interface ApiService {
     suspend fun sendMode(
         @Body request: ModeRequest
     ): Response<Any>
+
+    @GET("provinsi")
+    suspend fun getAllProvinsi(): List<Provinsi>
+
+    @GET("provinsi/{id_provinsi}/kota")
+    suspend fun getKotaByProvinsi(@Path("id_provinsi") idProvinsi: Int): List<Kota>
+
+    @GET("kota/{id_kota}/kecamatan")
+    suspend fun getKecamatanByKota(@Path("id_kota") idKota: Int): List<Kecamatan>
+
+    @GET("kecamatan/{id_kecamatan}/kelurahan")
+    suspend fun getKelurahanByKecamatan(@Path("id_kecamatan") idKecamatan: Int): List<Kelurahan>
+
+    @GET("kelurahan/{id_kelurahan}/daerah")
+    suspend fun getDaerahByKelurahan(@Path("id_kelurahan") idKelurahan: Int): DaerahResponse
+
+    @GET("kelurahan/{id_kelurahan}/kode-lengkap")
+    suspend fun getKodeLengkap(@Path("id_kelurahan") idKelurahan: Int): KodeResponse
+
+    @GET("suhu-data/last/{device_id}")
+    suspend fun getLastSuhuByDeviceId(@Path("device_id") deviceId: String): SuhuResponse
+
+    @GET("sensor-data/latest-data")
+    suspend fun getLastDrinkEvent(@Query("user_id") userId: Int): LatestDataResponse
 }
 
 fun convertUtcToWIB(utcDate: String?, includeTime: Boolean = false, timeOnly: Boolean = false): String? {

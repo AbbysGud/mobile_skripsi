@@ -1,5 +1,6 @@
 package com.example.stationbottle.data
 
+import com.example.stationbottle.client.BMKGRetrofitClient
 import com.example.stationbottle.service.ApiService
 import com.example.stationbottle.service.convertUtcToWIB
 import com.example.stationbottle.service.retry
@@ -9,6 +10,7 @@ import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.time.LocalDate
 
 //suspend fun fetchSensorDataHistory(
 //    apiService: ApiService,
@@ -118,6 +120,30 @@ suspend fun fetchTodaySensorData(
 
         val sorted = todayData.data.sortedBy { it.created_at }
 
+        if (sorted.isNotEmpty()) {
+            val first = sorted.first()
+            if (
+                first.previous_weight != 0.0 &&
+                first.previous_weight > first.weight &&
+                first.previous_weight - first.weight > 20
+            ) {
+                val yesterday = LocalDate.parse(today).minusDays(1).toString()
+                val yesterdayData = retry(times = 3) {
+                    apiService.getSensorData(yesterday, yesterday, userId)
+                }
+
+                val yesterdaySorted = yesterdayData.data.sortedBy { it.created_at }
+                val lastFromYesterday = yesterdaySorted.lastOrNull()
+
+                if (lastFromYesterday != null) {
+                    val startTime = convertUtcToWIB(lastFromYesterday.created_at, timeOnly = true) ?: "-"
+                    val endTime = convertUtcToWIB(first.created_at, timeOnly = true) ?: "-"
+                    val volume = first.previous_weight - first.weight
+                    first.session = Triple(startTime, endTime, volume)
+                }
+            }
+        }
+
         for (i in 1 until sorted.size) {
             val prev = sorted[i - 1]
             val curr = sorted[i]
@@ -154,6 +180,33 @@ suspend fun fetchTodaySensorData(
         }
     } catch (e: Exception) {
         println("Kesalahan tak terduga: ${e.message}")
+        null
+    }
+}
+
+suspend fun fetchBMKGWeatherData(adm4: String): BMKGWeatherResponse? {
+    return try {
+        retry(times = 3) {
+            val response = BMKGRetrofitClient.bmkgAPIService.getWeatherForecast(adm4)
+            if (response.isSuccessful) {
+                response.body()
+            } else {
+                // Tangani respons tidak sukses (misalnya, kode 404, 500)
+                println("Error fetching BMKG data: ${response.code()} - ${response.message()}")
+                null
+            }
+        }
+    } catch (e: UnknownHostException) {
+        println("Kesalahan jaringan: Server BMKG tidak dapat dijangkau.")
+        null
+    } catch (e: SocketTimeoutException) {
+        println("Kesalahan: Waktu permintaan API BMKG habis.")
+        null
+    } catch (e: HttpException) {
+        println("Kesalahan HTTP saat mengambil data BMKG: ${e.code()}")
+        null
+    } catch (e: Exception) {
+        println("Kesalahan tidak diketahui saat mengambil data BMKG: ${e.message}")
         null
     }
 }

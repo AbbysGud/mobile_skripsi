@@ -141,13 +141,18 @@ fun OutlinedDropdownMenuBox(
     label: String,
     selectedOption: String,
     options: List<String>,
+    enabled: Boolean = true,
     onOptionSelected: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
-        onExpandedChange = { expanded = it }
+        onExpandedChange = {
+            if (enabled) {
+                expanded = it
+            }
+        }
     ) {
         OutlinedTextField(
             value = selectedOption,
@@ -162,7 +167,8 @@ fun OutlinedDropdownMenuBox(
                     imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
                     contentDescription = "Dropdown Icon"
                 )
-            }
+            },
+            enabled = enabled
         )
 
         ExposedDropdownMenu(
@@ -175,7 +181,8 @@ fun OutlinedDropdownMenuBox(
                     onClick = {
                         onOptionSelected(option)
                         expanded = false
-                    }
+                    },
+                    enabled = enabled
                 )
             }
         }

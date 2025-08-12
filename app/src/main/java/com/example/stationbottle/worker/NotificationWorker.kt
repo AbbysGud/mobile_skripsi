@@ -6,10 +6,15 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.example.stationbottle.R
 import com.example.stationbottle.data.UserDataStore.getUser
+import com.example.stationbottle.data.fetchBMKGWeatherData
+import com.example.stationbottle.models.SensorViewModel
+import com.example.stationbottle.models.WilayahViewModel
 import kotlinx.coroutines.flow.first
 import java.time.Duration
 import java.time.LocalDate
@@ -17,7 +22,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
-
+import kotlin.math.roundToInt
 
 class NotificationWorker(
     context: Context,
@@ -26,13 +31,90 @@ class NotificationWorker(
 
     @SuppressLint("DefaultLocale")
     override suspend fun doWork(): Result {
-        val user = getUser(applicationContext).first()!!
+        return try {
+            val isCustomReminder = inputData.getBoolean("IS_CUSTOM_REMINDER", false)
+            if (isCustomReminder) {
+                handleCustomReminder(inputData)
+            } else {
+                handleScheduledHydrationCheck()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.retry()
+        }
+    }
 
+    /**
+     * Menangani pembuatan notifikasi untuk pengingat minum kustom dari halaman Insight.
+     */
+    private suspend fun handleCustomReminder(data: Data): Result {
+        val user = getUser(applicationContext).first() ?: return Result.failure()
+        val recommendedVolume = data.getInt("RECOMMENDED_VOLUME", 0)
+
+        // Hitung ulang data terkini untuk memastikan notifikasi akurat
         val hasilPred = calculatePrediction(
             context = applicationContext,
             user = user,
             waktuMulai = user.waktu_mulai!!,
-            waktuSelesai = user.waktu_selesai!!
+            waktuSelesai = user.waktu_selesai!!,
+            todayDate = LocalDate.now().toString()
+        )
+        val currentIntake = hasilPred.todayAktual
+        val dailyGoal = user.daily_goal ?: 0.0
+
+        // Ambil data suhu terkini
+        val sensorViewModel = SensorViewModel()
+        val wilayahViewModel = WilayahViewModel()
+        val lastSuhu = sensorViewModel.getLastSuhuByDeviceId(user.device_id.toString())
+        val suhuIndoor = lastSuhu?.data?.temperature
+
+        val kodeLengkap = if (!user.id_kelurahan.isNullOrEmpty()) {
+            wilayahViewModel.getKodeLengkap(user.id_kelurahan.toInt()).kode_kelurahan_lengkap
+        } else ""
+        val weatherResponse = fetchBMKGWeatherData(kodeLengkap)
+        val suhuOutdoor = weatherResponse?.data?.firstOrNull()?.cuaca?.firstOrNull()?.firstOrNull()?.t?.toDouble()
+
+        val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "hydration_notifications_custom"
+        val channelName = "Pengingat Minum Terjadwal"
+        notificationManager.createNotificationChannel(NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_HIGH))
+
+        val title = "Saatnya Minum, ${user.name}!"
+        var message = "Sudah waktunya anda scan minum anda sebanyak ${recommendedVolume}mL! " +
+                "Saat ini Anda baru minum ${currentIntake.toInt()}mL dan masih kurang " +
+                "${(dailyGoal - currentIntake).roundToInt()}mL dari target harian (${dailyGoal.roundToInt()}mL)."
+
+        val indoorTempStr = if (suhuIndoor != null) "${suhuIndoor.roundToInt()}°C" else "tidak tersedia"
+        val outdoorTempStr = if (suhuOutdoor != null) "${suhuOutdoor.roundToInt()}°C" else "tidak tersedia"
+        message += "\n\nSuhu ruangan: $indoorTempStr, Suhu luar: $outdoorTempStr."
+
+        val notification = NotificationCompat.Builder(applicationContext, channelId)
+            .setSmallIcon(R.drawable.outline_water_drop_24) // Pastikan ikon ini ada di drawable
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), notification) // ID unik untuk setiap notifikasi
+        return Result.success()
+    }
+
+    /**
+     * Menangani logika notifikasi reguler yang sudah ada sebelumnya.
+     */
+    private suspend fun handleScheduledHydrationCheck(): Result {
+        // [ ... SELURUH KODE ASLI DARI FUNGSI doWork() SEBELUMNYA DITEMPATKAN DI SINI ... ]
+        // Kode asli dimulai dari: val user = getUser(applicationContext).first()!!
+        // ... hingga return Result.success()
+        val user = getUser(applicationContext).first()!!
+        val hasilPred = calculatePrediction(
+            context = applicationContext,
+            user = user,
+            waktuMulai = user.waktu_mulai!!,
+            waktuSelesai = user.waktu_selesai!!,
+            todayDate = LocalDate.now().toString()
         )
 
         val notificationManager =
@@ -65,9 +147,6 @@ class NotificationWorker(
                         "${user.daily_goal.toInt()} mL, anda baru mencapai ${hasilPred.todayAktual.toInt()} mL!" +
                         "Keep up the good work!!"
             }
-
-        println("NOTIFIKASI AKTUAL: ${hasilPred.todayAktual.toInt()}")
-        println("NOTIFIKASI PREDIKSI: ${hasilPred.todayPrediksi.toInt()}")
 
         val iconRes = if (status) {
             android.R.drawable.ic_dialog_info
@@ -140,12 +219,6 @@ class NotificationWorker(
 
             WorkManager.getInstance(applicationContext).enqueue(initialWorkRequest)
         }
-
-        return try {
-            Result.success()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Result.retry()
-        }
+        return Result.success()
     }
 }

@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.androidx.datastore.core)
     implementation(libs.org.eclipse.paho.client.mqttv3)
     implementation(libs.ycharts)
+    implementation(libs.mpandroidchart)
     implementation (libs.androidx.work.runtime.ktx)
     implementation (libs.androidx.appcompat.v161)
     implementation (libs.androidx.constraintlayout)

@@ -37,6 +37,7 @@ fun AppNavigation(onThemeChange: () -> Unit) {
 
 
     val fromDate = remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
+//    val fromDate = remember { mutableStateOf(LocalDate.of(2025, 6, 7).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
 
     LaunchedEffect(user) {
         isLoggedIn.value = user != null
@@ -73,6 +74,7 @@ fun AppNavigation(onThemeChange: () -> Unit) {
                     )
                 }
             }
+            composable("insight") { InsightScreen() }
             composable("station") { StationScreen() }
             composable("history") { HistoryScreen() }
             composable("profile") {
@@ -93,6 +95,7 @@ fun BottomNavigationBar(
 ) {
     val items = listOf(
         BottomNavItem("Home", R.drawable.outline_home_24, "home"),
+        BottomNavItem("Insight", R.drawable.outline_health_and_safety_24, "insight"),
         BottomNavItem("Stasiun", R.drawable.outline_sensors_24, "station"),
         BottomNavItem("History", R.drawable.outline_history_24, "history"),
         BottomNavItem("Profile", R.drawable.outline_person_24, "profile")

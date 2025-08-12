@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,21 +34,26 @@ import androidx.core.content.ContextCompat
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.stationbottle.R
+import com.example.stationbottle.client.RetrofitClient
 import com.example.stationbottle.client.RetrofitClient.apiService
+import com.example.stationbottle.data.ModeRequest
 import com.example.stationbottle.data.PredictionResult
 import com.example.stationbottle.data.fetchSensorDataHistory
 import com.example.stationbottle.ui.screens.component.DatePickerOutlinedField
 import com.example.stationbottle.worker.NotificationWorker
 import com.example.stationbottle.worker.calculatePrediction
 import com.example.stationbottle.worker.loadXGBoostModel
+import com.example.stationbottle.worker.predictWholeDay
 import com.example.stationbottle.worker.testTime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
@@ -82,14 +88,13 @@ fun HomeScreen(
     var dailyGoal by remember { mutableStateOf<Double?>(null) }
     var waktuMulai by remember { mutableStateOf<String?>(null) }
     var waktuSelesai by remember { mutableStateOf<String?>(null) }
-    var dataBasedWaktuMulai by remember { mutableStateOf<String?>(null) }
-    var dataBasedWaktuSelesai by remember { mutableStateOf<String?>(null) }
 
     var userWaktuMulai by remember { mutableStateOf<LocalTime?>(null) }
     var userWaktuSelesai by remember { mutableStateOf<LocalTime?>(null) }
 
     var totalAktual by remember { mutableDoubleStateOf(0.0) }
     var totalPrediksi by remember { mutableDoubleStateOf(0.0) }
+    var totalPrediksiWhole by remember { mutableDoubleStateOf(0.0) }
     var statusHistory by remember { mutableStateOf<Boolean?>(null) }
 
     var hasilPred by remember { mutableStateOf<PredictionResult?>(null) }
@@ -149,6 +154,7 @@ fun HomeScreen(
 
             WorkManager.getInstance(context).enqueue(initialWorkRequest)
         }
+
     }
 
     val requestPermissionLauncher = rememberLauncherForActivityResult(
@@ -177,6 +183,12 @@ fun HomeScreen(
                 it.waktu_mulai != null && it.waktu_mulai != "" &&
                 it.waktu_selesai != null && it.waktu_selesai != ""
             ){
+//                prediksiListAll = predictWholeDay(
+//                    context = context,
+//                    user = it,
+//                    fromDate =
+//                )
+
                 hasilPred = calculatePrediction(
                     context = context,
                     user = it,
@@ -194,9 +206,9 @@ fun HomeScreen(
                     sessionList = it.drinkSessionList
                     userWaktuMulai = it.userWaktuMulai
                     userWaktuSelesai = it.userWaktuSelesai
+                    totalPrediksiWhole = it.todayPrediksiWhole
+                    prediksiListAll = it.prediksiListWhole
                 }
-
-                println(sessionList)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -206,57 +218,6 @@ fun HomeScreen(
                     onPermissionGranted()
                 }
 
-                val xgboost = loadXGBoostModel(context, it.id)
-
-                if (xgboost != null) {
-                    var isBedaHari = false
-                    if(dateFormat.parse(it.waktu_mulai)!!.time > dateFormat.parse(it.waktu_selesai)!!.time){
-                        isBedaHari = true
-                    }
-
-                    var baseDate = LocalDate.parse(fromDate, formatter)
-
-                    dataBasedWaktuMulai = userWaktuMulai.toString()
-                    dataBasedWaktuSelesai = userWaktuSelesai.toString()
-
-                    var waktuPred = userWaktuMulai.toString()
-
-                    var dayPrediksi = baseDate.format(formatter)
-
-                    val (prediksiAir, prediksiWaktu) = xgboost.prediksi(
-                        waktuPred.toString(),
-                        userWaktuSelesai.toString(),
-                        dayPrediksi.toString(),
-                        isBedaHari
-                    )!!
-
-                    // Hasil prediksiAir = array jumlah minum
-                    // prediksiWaktu = array waktu delta dalam detik dari waktuMulai
-                    val waktuPrediksiList = mutableListOf<String>()
-
-                    val formatterPrediksi = if (waktuPred.count { it == ':' } == 2) {
-                        DateTimeFormatter.ofPattern("HH:mm:ss")
-                    } else {
-                        DateTimeFormatter.ofPattern("HH:mm")
-                    }
-
-                    val waktuMulaiTime = LocalTime.parse(waktuPred, formatterPrediksi)
-                    var totalDetik = waktuMulaiTime.toSecondOfDay()
-
-                    for (delta in prediksiWaktu) {
-                        totalDetik += delta.toInt()
-                        val jam = totalDetik / 3600
-                        val menit = (totalDetik % 3600) / 60
-                        val detik = totalDetik % 60
-                        waktuPrediksiList.add(String.format("%02d:%02d:%02d", jam, menit, detik))
-                    }
-
-                    prediksiListAll = waktuPrediksiList.zip(prediksiAir.asList())
-                        .toMap(LinkedHashMap())
-
-                    // Anda bisa tampilkan atau simpan hasil ini
-                    println("Prediksi total minum hari ini: ${prediksiAir.sum()} mL")
-                }
             }
 
             isLoading = false
@@ -301,106 +262,27 @@ fun HomeScreen(
 
             if (dailyGoal != null) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.elevatedCardElevation(4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+                        )
                     ) {
-                        Text(
-                            text = "Aktual",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        val progress = if (dailyGoal!! != 0.0) (totalAktual / dailyGoal!!).toFloat() else 0f
-                        val percentage = (progress * 100).roundToInt()
-
-                        Box(
-                            modifier = Modifier.size(100.dp),
-                            contentAlignment = Alignment.Center
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-
-                            CircularProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.size(100.dp),
-                                strokeWidth = 8.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.inversePrimary
-                            )
-
-                            Text(
-                                text = "$percentage%",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = buildAnnotatedString {
-                                append("${"%.0f".format(totalAktual)} mL")
-                                addStyle(SpanStyle(fontWeight = FontWeight.Medium), 0, length)
-
-                                append(" / ")
-
-                                val startOfDailyGoal = length
-                                append("${"%.0f".format(dailyGoal)} mL")
-                                addStyle(SpanStyle(fontWeight = FontWeight.SemiBold), startOfDailyGoal, length)
-                            },
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Prediksi",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        var textError =
-                            if (waktuMulai == null || waktuMulai == "" ||
-                                waktuSelesai == null || waktuSelesai == ""
-                            ) {
-                                "Isi Semua Data di Profil untuk Prediksi AI"
-                            } else if (statusHistory == false) {
-                                "Data Historis Tidak Tersedia"
-                            } else {
-                                "Error"
-                            }
-
-                        if (waktuMulai == null || waktuMulai == "" ||
-                            waktuSelesai == null || waktuSelesai == ""
-                            || (statusHistory == false && totalPrediksi == 0.0)
-                        ) {
-                            Box(
-                                modifier = Modifier.size(100.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = textError,
-                                    fontSize = 14.sp,
-                                    color = Color.Gray,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        } else {
-
-                            val progress = if (dailyGoal!! != 0.0) (totalPrediksi / dailyGoal!!).toFloat() else 0f
+                            val progress =
+                                if (dailyGoal!! != 0.0) (totalAktual / dailyGoal!!).toFloat() else 0f
                             val percentage = (progress * 100).roundToInt()
 
                             Box(
@@ -412,8 +294,8 @@ fun HomeScreen(
                                     progress = { progress },
                                     modifier = Modifier.size(100.dp),
                                     strokeWidth = 8.dp,
-                                    color = MaterialTheme.colorScheme.tertiary,
-                                    trackColor = MaterialTheme.colorScheme.tertiaryContainer
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.inversePrimary
                                 )
 
                                 Text(
@@ -424,21 +306,175 @@ fun HomeScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = buildAnnotatedString {
-                                    append("${"%.0f".format(totalPrediksi)} mL")
+                                    append("${"%.0f".format(totalAktual)} mL")
                                     addStyle(SpanStyle(fontWeight = FontWeight.Medium), 0, length)
 
                                     append(" / ")
 
                                     val startOfDailyGoal = length
                                     append("${"%.0f".format(dailyGoal)} mL")
-                                    addStyle(SpanStyle(fontWeight = FontWeight.SemiBold), startOfDailyGoal, length)
+                                    addStyle(
+                                        SpanStyle(
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        ),
+                                        startOfDailyGoal,
+                                        length
+                                    )
                                 },
-                                fontSize = 14.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium
                             )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                val remainingAktual = dailyGoal!! - totalAktual
+                                Text(
+                                    text = if (todayList.isEmpty()) {
+                                        "Anda belum minum hari ini!"
+                                    } else if (remainingAktual > 0) {
+                                        "${"%.0f".format(remainingAktual)} mL menuju target"
+                                    } else {
+                                        "Target tercapai!"
+                                    },
+                                    fontSize = 16.sp,
+                                    textAlign = TextAlign.Center,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            MaterialTheme.colorScheme.surfaceVariant,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(16.dp)
+                                )
+                            }
+
+                            fun formatDurationToReadableString(duration: Duration): String {
+                                if (duration.isNegative) {
+                                    return "Sudah terlewat"
+                                }
+
+                                val hours = duration.toHours()
+                                val minutes = duration.toMinutes() % 60
+
+                                return when {
+                                    hours > 0 && minutes > 0 -> "$hours jam $minutes menit"
+                                    hours > 0 -> "$hours jam"
+                                    minutes > 0 -> "$minutes menit"
+                                    else -> "Kurang dari 1 menit"
+                                }
+                            }
+
+
+                            val session = sessionList?.lastOrNull()
+
+                            if (session != null || LocalDate.now() == LocalDate.parse(fromDate, formatter)) {
+                                val inputFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                                val waktuAkhirDate: Date? = try {
+                                    if (LocalDate.now() == LocalDate.parse(fromDate, formatter)){
+                                        val currentTimeString = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                                        inputFormat.parse(currentTimeString)
+                                    } else {
+                                        inputFormat.parse(session?.second)
+                                    }
+                                } catch (e: Exception) {
+                                    null
+                                }
+
+                                if (waktuAkhirDate != null && userWaktuSelesai != null) {
+                                    val waktuAkhirLocalTime: LocalTime = waktuAkhirDate.toInstant()
+                                        .atZone(ZoneId.systemDefault())
+                                        .toLocalTime()
+
+                                    val waktuBeres: LocalTime = LocalTime.of(23, 59, 59)
+
+                                    var selisihDuration = Duration.between(waktuAkhirLocalTime, userWaktuSelesai)
+
+                                    println(selisihDuration.toMinutes())
+
+                                    if (selisihDuration.isNegative) {
+                                        selisihDuration = selisihDuration.plusDays(1)
+                                    }
+
+                                    val selisihMalam = Duration.between(waktuAkhirLocalTime, waktuBeres)
+
+                                    val formattedSelisihMalam = if (selisihMalam.isNegative) {
+                                        "Sudah lewat tengah malam"
+                                    } else {
+                                        formatDurationToReadableString(selisihMalam)
+                                    }
+
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Divider(
+                                        modifier = Modifier
+                                            .fillMaxWidth(),
+                                        thickness = 1.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth(),
+//                                            .padding(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    MaterialTheme.colorScheme.surfaceVariant,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "Sisa waktu minum hingga \npukul ${userWaktuSelesai?.format(DateTimeFormatter.ofPattern("HH:mm"))}:",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = formatDurationToReadableString(selisihDuration),
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "Sisa waktu hingga dini hari \n(pukul 23:59):",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = formattedSelisihMalam,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -460,7 +496,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Data Hari Ini belum tersedia.",
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     color = Color.Gray
                 )
             } else {
@@ -496,7 +532,7 @@ fun HomeScreen(
                                     painter = painterResource(id = R.drawable.outline_access_time_24),
                                     contentDescription = "Icon",
                                     modifier = Modifier
-                                        .size(24.dp),
+                                        .size(28.dp),
                                     tint = MaterialTheme.colorScheme.onSurface
                                 )
 
@@ -517,10 +553,13 @@ fun HomeScreen(
                                     val waktuBiasaFormat = outputFormat.format(waktuBiasa!!)
                                     var waktuFormat = waktuBiasaFormat
 
+                                    var jam = 0L
+                                    var menit = 0L
+
                                     if (session != null){
                                         val waktuMulai = inputFormat.parse(session.first)
                                         val waktuAkhir = inputFormat.parse(session.second)
-                                        var waktuMulaiBefore: Date
+                                        var waktuMulaiBefore: Date = Date()
                                         var waktuMulaiBeforeFormat: String
 
                                         if (userWaktuMulai == null) {
@@ -531,7 +570,7 @@ fun HomeScreen(
                                             waktuMulaiBefore = inputFormat.parse(waktuMulaiString)
                                             waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
                                         } else {
-                                            waktuMulaiBefore = inputFormat.parse(sessionBefore?.second)!!
+                                            waktuMulaiBefore = inputFormat.parse(sessionBefore?.second)
                                             waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
                                         }
 
@@ -541,36 +580,162 @@ fun HomeScreen(
                                         val selisihMillis = waktuAkhir.time - waktuMulai.time
                                         val selisihMenit = selisihMillis / (60 * 1000)
 
-                                        if (selisihMenit < 5L && session.third > 100) {
-                                            waktuFormat = "$waktuMulaiBeforeFormat - $waktuAkhirFormat"
-                                        } else {
-                                            waktuFormat = "$waktuMulaiFormat - $waktuAkhirFormat"
-                                        }
+//                                        if (selisihMenit < 5L && session.third > 100) {
+                                        waktuFormat = "$waktuMulaiBeforeFormat - $waktuAkhirFormat"
+
+                                        val millis = waktuAkhir.time - waktuMulaiBefore.time
+                                        val fullMenit = millis / (1000 * 60)
+                                        menit = fullMenit % 60
+                                        jam = millis / (1000 * 60 * 60)
+
+//                                        } else {
+//                                            waktuFormat = "$waktuMulaiBeforeFormat - $waktuAkhirFormat"
+//
+//                                            val millis = waktuAkhir.time - waktuMulai.time
+//                                            val fullMenit = millis / (1000 * 60)
+//                                            menit = fullMenit % 60
+//                                            jam = millis / (1000 * 60 * 60)
+//                                        }
                                     }
 
                                     Text(
                                         text = waktuFormat,
-                                        fontSize = 14.sp,
+                                        fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        text = "Aktual",
-                                        fontSize = 12.sp,
-                                        color = Color.Gray,
-                                        fontWeight = FontWeight.SemiBold
+                                        text = "$jam jam $menit menit",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal
                                     )
                                 }
                                 Text(
                                     text = "${minum.toInt()} ml",
-                                    fontSize = 14.sp,
-                                    color = Color.Gray,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Thin,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 12.dp),
                                     textAlign = TextAlign.End
                                 )
+                            }
+                        }
+                    }
+                }
+            }
 
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Prediksi Total Minum Anda",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (dailyGoal != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.elevatedCardElevation(4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.
+                            fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            var textError =
+                                if (waktuMulai == null || waktuMulai == "" ||
+                                    waktuSelesai == null || waktuSelesai == ""
+                                ) {
+                                    "Isi Semua Data di Profil untuk Prediksi AI"
+                                } else if (statusHistory == false) {
+                                    "Data Historis Tidak Tersedia"
+                                } else {
+                                    "Error"
+                                }
+
+                            if (waktuMulai == null || waktuMulai == "" ||
+                                waktuSelesai == null || waktuSelesai == ""
+                                || (statusHistory == false && totalPrediksi == 0.0)
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(100.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = textError,
+                                        fontSize = 16.sp,
+                                        color = Color.Gray,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else {
+
+                                val progress = if (dailyGoal!! != 0.0) (totalPrediksi / dailyGoal!!).toFloat() else 0f
+                                val percentage = (progress * 100).roundToInt()
+
+                                Box(
+                                    modifier = Modifier.size(100.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+
+                                    CircularProgressIndicator(
+                                        progress = { progress },
+                                        modifier = Modifier.size(100.dp),
+                                        strokeWidth = 8.dp,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                        trackColor = MaterialTheme.colorScheme.tertiaryContainer
+                                    )
+
+                                    Text(
+                                        text = "$percentage%",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = buildAnnotatedString {
+                                        append("${"%.0f".format(totalPrediksi)} mL")
+                                        addStyle(SpanStyle(fontWeight = FontWeight.Medium), 0, length)
+
+                                        append(" / ")
+
+                                        val startOfDailyGoal = length
+                                        append("${"%.0f".format(dailyGoal)} mL")
+                                        addStyle(
+                                            SpanStyle(
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.tertiary
+                                            ),
+                                            startOfDailyGoal,
+                                            length)
+                                    },
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
                         }
                     }
@@ -593,7 +758,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Data Prediksi belum tersedia.",
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     color = Color.Gray
                 )
             } else {
@@ -629,7 +794,7 @@ fun HomeScreen(
                                     painter = painterResource(id = R.drawable.outline_insights_24),
                                     contentDescription = "Icon",
                                     modifier = Modifier
-                                        .size(24.dp),
+                                        .size(28.dp),
                                     tint = MaterialTheme.colorScheme.onSurface
                                 )
 
@@ -652,6 +817,9 @@ fun HomeScreen(
                                     var waktuMulaiBefore: Date
                                     var waktuMulaiBeforeFormat: String
 
+                                    var jam = 0L
+                                    var menit = 0L
+
                                     if (sessionBefore != null && index == 0){
                                         val waktuMulai = inputFormat.parse(sessionBefore.second)
 
@@ -659,6 +827,11 @@ fun HomeScreen(
 //                                        val waktuAkhirFormat = outputFormat.format(waktuAkhir!!)
 
                                         waktuFormat = "$waktuMulaiFormat - $waktuFormat"
+
+                                        val millis = waktuBiasa.time - waktuMulai.time
+                                        val fullMenit = millis / (1000 * 60)
+                                        menit = fullMenit % 60
+                                        jam = millis / (1000 * 60 * 60)
                                     } else if (index == 0) {
                                         if (userWaktuMulai == null) {
                                             waktuMulaiBeforeFormat = "Memuat..."
@@ -669,31 +842,39 @@ fun HomeScreen(
                                             waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
 
                                             waktuFormat = "$waktuMulaiBeforeFormat - $waktuFormat"
+
+                                            val millis = waktuBiasa.time - waktuMulaiBefore.time
+                                            val fullMenit = millis / (1000 * 60)
+                                            menit = fullMenit % 60
+                                            jam = millis / (1000 * 60 * 60)
                                         }
                                     } else {
                                         waktuMulaiBefore = inputFormat.parse(prediksiList.entries.toList().getOrNull(index - 1)?.key)
                                         waktuMulaiBeforeFormat = outputFormat.format(waktuMulaiBefore)
 
                                         waktuFormat = "$waktuMulaiBeforeFormat - $waktuFormat"
+
+                                        val millis = waktuBiasa.time - waktuMulaiBefore.time
+                                        val fullMenit = millis / (1000 * 60)
+                                        menit = fullMenit % 60
+                                        jam = millis / (1000 * 60 * 60)
                                     }
 
                                     Text(
                                         text = waktuFormat,
-                                        fontSize = 14.sp,
+                                        fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        text = "Prediksi",
-                                        fontSize = 12.sp,
-                                        color = Color.Gray,
-                                        fontWeight = FontWeight.SemiBold
+                                        text = "$jam jam $menit menit",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal
                                     )
                                 }
                                 Text(
                                     text = "${minum.toInt()} ml",
-                                    fontSize = 14.sp,
-                                    color = Color.Gray,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Thin,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 12.dp),
@@ -705,348 +886,6 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Tips Mencapai Target Hidrasi Harian",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Start,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (prediksiListAll.isEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Perlu Data Prediksi Untuk Mendapatkan Tips",
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    color = Color.Gray
-                )
-            } else {
-//                val prediksiEntries =
-//                    prediksiListAll.entries.toList().take(2) // Konversi ke List lalu ambil 2 pertama
-//                val minumTips = prediksiEntries.firstOrNull()?.value ?: 0.0
-//                var minumTotal = 0.0
-//                val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-//
-//                val waktuTips = if (prediksiEntries.size == 2) {
-//                    val waktu1 = dateFormat.parse(prediksiEntries[0].key)?.time ?: 0L
-//                    val waktu2 = dateFormat.parse(prediksiEntries[1].key)?.time ?: 0L
-//                    waktu2 - waktu1
-//                } else {
-//                    0L
-//                }
-                val prediksiList = prediksiListAll.entries.toList().sortedBy { it.key }
-                val waktuSelisihList = prediksiList.zipWithNext().map { (a, b) ->
-                    val waktu1 = dateFormat.parse(a.key)?.time ?: 0L
-                    val waktu2 = dateFormat.parse(b.key)?.time ?: 0L
-                    waktu2 - waktu1
-                }
-                val waktuTips = waktuSelisihList.average().toLong()
-                val minumTips = prediksiList.map { it.value }.average()
-                var minumTotal = 0.0
-
-                if (waktuTips > 0) {
-                    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-
-                    val today = LocalDate.now()
-                    val sekarang = LocalTime.now()
-                    val timeMulai = LocalTime.parse(dataBasedWaktuMulai, timeFormatter)
-                    val timeSelesai = LocalTime.parse(dataBasedWaktuSelesai, timeFormatter)
-
-                    var fromDateTime = LocalDateTime.of(
-                        when {
-                            timeMulai > timeSelesai && sekarang < timeSelesai -> today.minusDays(1)
-                            timeMulai > timeSelesai -> today
-                            else -> today
-                        },
-                        timeMulai
-                    )
-
-                    var toDateTime = LocalDateTime.of(
-                        when {
-                            timeMulai > timeSelesai && sekarang < timeSelesai -> today
-                            timeMulai > timeSelesai -> today.plusDays(1)
-                            else -> today
-                        },
-                        timeSelesai
-                    )
-
-                    val timeList = mutableListOf<String>()
-                    var current = fromDateTime
-
-                    while (!current.isAfter(toDateTime)) {
-                        current = current.plusSeconds(waktuTips.div(1000).toLong())
-
-                        if (current.isAfter(toDateTime)) {
-                            break
-                        }
-
-                        timeList.add(current.format(timeFormatter))
-                    }
-
-                    timeList.forEach {
-                        minumTotal += minumTips
-                    }
-
-                    val waktuDetik = waktuTips.div(1000)
-                    val jam = waktuDetik.div(3600)
-                    val menit = (waktuDetik.rem(3600)).div(60)
-
-                    val minumRekomendasi =
-                        ceil(dailyGoal!!.div(timeList.size.toDouble())).toInt()
-
-                    val selisih = Duration.between(fromDateTime, toDateTime)
-                    val selisihJam = selisih.toMinutes()
-                    val frekuensi = dailyGoal!!.div(minumTips).toInt()
-                    val rekomendasi =
-                        ceil(selisihJam.div(frekuensi.toDouble())).toInt()
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Top,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                    ) {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            elevation = CardDefaults.elevatedCardElevation(4.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer
-                            ),
-                            border = BorderStroke(
-                                width = 0.75.dp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.Start,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = buildAnnotatedString {
-                                        append(
-                                            "Untuk saat ini, Kecerdasan Buatan pada sistem kami memprediksi " +
-                                            "bahwa setiap Anda minum, Anda akan minum sebanyak "
-                                        )
-                                        withStyle(style = SpanStyle(
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primaryContainer
-                                        )) {
-                                            append("${minumTips.toInt()} mL")
-                                        }
-                                        append(" dan anda akan minum setiap ")
-                                        withStyle(style = SpanStyle(
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primaryContainer
-                                        )) {
-                                            append(
-                                                (if (jam != 0L) "$jam jam " else "") +
-                                                (if (menit != 0L) "$menit menit" else "")
-                                            )
-                                        }
-                                        append(". Berdasarkan data tersebut total minum Anda perhari diprediksi sebanyak ")
-                                        withStyle(style = SpanStyle(
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primaryContainer
-                                        )) {
-                                            append("${minumTotal.toInt()} mL")
-                                        }
-                                        append(".")
-                                    },
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Light,
-                                    textAlign = TextAlign.Justify
-                                )
-
-                                if (minumTotal < dailyGoal!!) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = buildAnnotatedString {
-                                            append("Karena prediksi minum anda dibawah target hidrasi harian Anda yaitu ")
-                                            withStyle(style = SpanStyle(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primaryContainer
-                                            )) {
-                                                append("${minumTotal.toInt()} mL")
-                                            }
-                                            append(" dari ")
-                                            withStyle(style = SpanStyle(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primaryContainer
-                                            )) {
-                                                append("${dailyGoal!!.toInt()} mL")
-                                            }
-                                            append(", kami sarankan Anda untuk melakukan salah satu atau dua tips berikut:")
-                                        },
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                } else {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Menurut Kecerdasan Buatan, Target hidrasi harian anda akan" +
-                                                " terpenuhi, pertahankan kebiasaan anda!",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                }
-                            }
-                        }
-                        if (minumTotal < dailyGoal!!) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                elevation = CardDefaults.elevatedCardElevation(4.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                                ),
-                                border = BorderStroke(
-                                    width = 0.75.dp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    horizontalAlignment = Alignment.Start,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "1. Tingkatkan Konsumsi Air",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Jika Anda merasa sulit untuk lebih sering minum, solusi " +
-                                                "yang dapat dilakukan adalah meningkatkan jumlah air yang " +
-                                                "diminum setiap kali Anda minum.",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = buildAnnotatedString{
-                                            append(
-                                                "Berdasarkan perhitungan Kecerdasan Buatan, untuk mencapai " +
-                                                "target hidrasi harian Anda, Anda perlu mengonsumsi sekitar "
-                                            )
-                                            withStyle(style = SpanStyle(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primaryContainer
-                                            )) {
-                                                append("$minumRekomendasi mL")
-                                            }
-                                            append(" setiap Anda minum.")
-                                        },
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Dengan cara ini, meskipun frekuensi minum tetap sama, " +
-                                                "kebutuhan hidrasi Anda tetap terpenuhi.",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                }
-                            }
-
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                elevation = CardDefaults.elevatedCardElevation(4.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                                ),
-                                border = BorderStroke(
-                                    width = 0.75.dp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    horizontalAlignment = Alignment.Start,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "2. Tingkatkan Frekuensi Minum Air",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Apabila Anda merasa jumlah air yang diminum sudah cukup " +
-                                                "banyak setiap kali minum, tetapi masih belum mencapai " +
-                                                "target harian, maka meningkatkan frekuensi minum bisa " +
-                                                "menjadi solusi.",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = buildAnnotatedString {
-                                            append("Berdasarkan kalkulasi, Anda perlu minum setiap ")
-                                            withStyle(style = SpanStyle(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primaryContainer
-                                            )) {
-                                                append("$rekomendasi menit")
-                                            }
-                                            append(", agar mencapai target hidrasi harian Anda.")
-                                        },
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Coba ganti frekuensi notifikasi anda di halaman profil " +
-                                                "untuk membantu Anda membentuk kebiasaan ini secara bertahap.",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Light,
-                                        textAlign = TextAlign.Justify
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Top,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                    ) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Data Prediksi Tidak Mencukupi untuk Mendapatkan Tips",
-                            fontSize = 14.sp,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
             Spacer(modifier = Modifier.height(32.dp))
         }
 

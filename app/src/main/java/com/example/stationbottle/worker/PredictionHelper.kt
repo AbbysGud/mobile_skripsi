@@ -454,34 +454,34 @@ suspend fun calculatePrediction(
 
         val maxPatience = 3
 
-//        val idUserList = arrayOf(1, 2, 6)
-        val idUserList = arrayOf(idUser)
+        val idUserList = arrayOf(1, 2, 6)
+//        val idUserList = arrayOf(idUser)
 //        val idUserList = arrayOf(8)
 
         val todayActualDate = LocalDate.now()
 
-//        val shouldRetrain = !modelTrainedStatus ||
-//                (todayActualDate.dayOfWeek == DayOfWeek.SUNDAY && lastTrainedDate != todayActualDate.format(formatter))
-        val shouldRetrain = false
+        val shouldRetrain = !modelTrainedStatus ||
+                (todayActualDate.dayOfWeek == DayOfWeek.SUNDAY && lastTrainedDate != todayActualDate.format(formatter))
+//        val shouldRetrain = false
 //        val shouldRetrain = true
 
         if (shouldRetrain) {
             println("Model perlu dilatih ulang atau belum dilatih. Melakukan pelatihan...")
 
-//            var maxDepth = arrayOf(0, 10, 5, 3, 1)
-//            var allGamma = arrayOf(200.0, 50.0, 0.0)
-//            var allLambda = arrayOf(100.0, 10.0, 1.0, 0.0)
-//            var learningRates = arrayOf(0.5, 0.3, 0.1, 0.01)
+            var maxDepth = arrayOf(0, 10, 5, 3, 1)
+            var allGamma = arrayOf(200.0, 50.0, 0.0)
+            var allLambda = arrayOf(100.0, 10.0, 1.0, 0.0)
+            var learningRates = arrayOf(0.5, 0.3, 0.1, 0.01)
 
 //            var maxDepth = arrayOf(10, 5, 3)
 //            var allGamma = arrayOf(50.0)
 //            var allLambda = arrayOf(10.0, 0.0)
 //            var learningRates = arrayOf(0.5, 0.3, 0.1)
 
-            var maxDepth = arrayOf(10, 3)
-            var allGamma = arrayOf(50.0)
-            var allLambda = arrayOf(10.0, 0.0)
-            var learningRates = arrayOf(0.5, 0.1)
+//            var maxDepth = arrayOf(10, 3)
+//            var allGamma = arrayOf(50.0)
+//            var allLambda = arrayOf(10.0, 0.0)
+//            var learningRates = arrayOf(0.5, 0.1)
 
             for (idUser in idUserList) {
                 bestSmapeOverall[idUser] = Double.MAX_VALUE
@@ -560,14 +560,14 @@ suspend fun calculatePrediction(
                                     val currentSmape = evaluasi.smape
                                     val currentR2 = evaluasi.r2
 
-                                    if (currentR2 < -1.0) {
-                                        trainingMetrics?.let {
-                                            println("  Training Metrics (Air): MAE=${it.airMetrics.mae} | RMSE=${it.airMetrics.rmse} | SMAPE=${it.airMetrics.smape} | R2=${it.airMetrics.r2}")
-                                            println("  Training Metrics (Waktu): MAE=${it.waktuMetrics.mae} | RMSE=${it.waktuMetrics.rmse} | SMAPE=${it.waktuMetrics.smape} | R2=${it.waktuMetrics.r2}")
-                                        }
-                                        println("Skip: R2 ($currentR2) terlalu kecil (< -1.0) untuk depth=$depth, gamma=$gamma, lambda=$lambda, rate=$rate")
-                                        continue
-                                    }
+//                                    if (currentR2 < -1.0) {
+//                                        trainingMetrics?.let {
+//                                            println("  Training Metrics (Air): MAE=${it.airMetrics.mae} | RMSE=${it.airMetrics.rmse} | SMAPE=${it.airMetrics.smape} | R2=${it.airMetrics.r2}")
+//                                            println("  Training Metrics (Waktu): MAE=${it.waktuMetrics.mae} | RMSE=${it.waktuMetrics.rmse} | SMAPE=${it.waktuMetrics.smape} | R2=${it.waktuMetrics.r2}")
+//                                        }
+//                                        println("Skip: R2 ($currentR2) terlalu kecil (< -1.0) untuk depth=$depth, gamma=$gamma, lambda=$lambda, rate=$rate")
+//                                        continue
+//                                    }
 
                                     if (currentSmape < (bestSmapeOverall[idUser]
                                             ?: 0.0) || currentR2 > (bestR2Overall[idUser] ?: 0.0)
@@ -588,14 +588,14 @@ suspend fun calculatePrediction(
                                         println("BEST MODEL FOUND FOR USER $idUser (depth=$depth, gamma=$gamma, lambda=$lambda, rate=$rate):")
                                     }
 
-                                    if (currentSmape < bestSmapeForCurrentRate) {
-                                        bestSmapeForCurrentRate = currentSmape
-                                        currentRatePatience = 0
-                                    } else {
-                                        currentRatePatience++
-                                    }
+//                                    if (currentSmape < bestSmapeForCurrentRate) {
+//                                        bestSmapeForCurrentRate = currentSmape
+//                                        currentRatePatience = 0
+//                                    } else {
+//                                        currentRatePatience++
+//                                    }
 
-                                    val fitur = "timeDayInteraction|jamFreqZScoreDecay(14)|hourDayInteraction"
+                                    val fitur = "jamFreqZScoreDecay(21)"
 
                                     simpanKeExcel(
                                         name = "Evaluasi_Eval",
@@ -659,10 +659,10 @@ suspend fun calculatePrediction(
                                         jenis = "Test Data"
                                     )
 
-                                    if (currentRatePatience >= maxPatience) {
-                                        println("Skipping remaining rates for depth=$depth, gamma=$gamma, lambda=$lambda due to lack of improvement (Patience limit reached for Rates).")
-                                        break
-                                    }
+//                                    if (currentRatePatience >= maxPatience) {
+//                                        println("Skipping remaining rates for depth=$depth, gamma=$gamma, lambda=$lambda due to lack of improvement (Patience limit reached for Rates).")
+//                                        break
+//                                    }
 
                                 }
                             }
@@ -697,14 +697,14 @@ suspend fun calculatePrediction(
                 syaratHistory = lolosSyaratHistory
             )
 
-            if (!lolosSyaratHistory || idUser == 8) {
-                saveXGBoostModel(context, xgboost, 0)
-            } else {
-                saveXGBoostModel(context, xgboost, idUser)
-            }
+//            if (!lolosSyaratHistory || idUser == 8) {
+//                saveXGBoostModel(context, xgboost, 0)
+//            } else {
+//                saveXGBoostModel(context, xgboost, idUser)
+//            }
 
-            AppPreferences.saveLastTrainedDate(context, todayActualDate.format(formatter))
-            AppPreferences.saveModelTrainedStatus(context, true)
+//            AppPreferences.saveLastTrainedDate(context, todayActualDate.format(formatter))
+//            AppPreferences.saveModelTrainedStatus(context, true)
         } else {
             println("Model sudah dilatih dan tidak perlu dilatih ulang. Memuat model dari penyimpanan...")
             if (!lolosSyaratHistory || idUser == 8) {

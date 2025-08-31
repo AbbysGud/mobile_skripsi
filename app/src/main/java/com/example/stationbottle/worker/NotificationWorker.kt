@@ -23,6 +23,10 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
+import com.example.stationbottle.client.RetrofitClient
+import com.example.stationbottle.data.ModeRequest
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 class NotificationWorker(
     context: Context,
@@ -98,6 +102,32 @@ class NotificationWorker(
             .build()
 
         notificationManager.notify(System.currentTimeMillis().toInt(), notification) // ID unik untuk setiap notifikasi
+
+        try {
+            // samakan alur dengan StationScreen: ambil ngrok URL lalu set base url dinamis
+            val ngrok = RetrofitClient.apiService.getNGROKUrl()
+            RetrofitClient.setDynamicBaseUrl("${ngrok.http_url}/api/")
+
+            // rakit pesan 2 baris agar muat di LCD 16x2
+            val rawName = user.name ?: "Teman"
+            val safeName = if (rawName.length <= 12) rawName else rawName.substring(0, 12) // "Hai " + 12 char = 16
+            val teksLCD = "Hai $safeName\nAyo minum ${recommendedVolume} mL"
+
+            val encoded = URLEncoder.encode(teksLCD, StandardCharsets.UTF_8.toString())
+            val combined = "MODE_BUZZER;;url:$encoded"
+
+            val mode = ModeRequest(
+                message = combined,
+                user_id = user.id,
+                device_id = user.device_id.toString(),
+            )
+
+            val resp = RetrofitClient.dynamicApiService.sendMode(mode)
+            println("MODE_BUZZER sent from NotificationWorker: $resp")
+        } catch (e: Exception) {
+            println("Error sending MODE_BUZZER from NotificationWorker: ${e.message}")
+        }
+
         return Result.success()
     }
 

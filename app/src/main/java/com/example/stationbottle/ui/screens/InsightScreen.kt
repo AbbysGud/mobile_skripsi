@@ -764,14 +764,22 @@ fun InsightScreen(){
                             val freqMoreSipsMidnightAdjusted = (remainingVolumeAdjusted / targetVolumePerSip).roundToInt().coerceAtLeast(1)
                             val volPerSessionMoreSipsMidnightAdjusted = (remainingVolumeAdjusted / freqMoreSipsMidnightAdjusted).roundToInt()
 
+                            val willReach = totalPrediksi > dailyGoal
+                            val (dangerLevel, verb) = if (willReach) "info" to "akan tercapai" else "danger" to "belum tercapai"
+
+                            val goalInt = dailyGoal.roundToInt()
+                            val predInt = totalPrediksi.roundToInt()
+
+                            val targetMessage = "Target minum harian Anda (${goalInt}mL) diprediksi $verb dengan pola saat ini (${predInt}mL). Klik untuk rincian."
+                            val targetColor = InsightItemLevelColor.getValue(dangerLevel)
+                            val targetTitle = "Target $verb"
                             insightTips.add(
                                 InsightItem(
                                     iconRes = R.drawable.outline_warning,
-                                    title = "Target Belum Tercapai",
-                                    level = "danger",
-                                    color = InsightItemLevelColor["danger"]!!,
-                                    message = "Target minum harian Anda (${dailyGoal.roundToInt()}mL) diprediksi belum tercapai dengan pola saat ini " +
-                                            "(${(totalPrediksi).roundToInt()}mL). Klik untuk rincian.",
+                                    title = targetTitle,
+                                    level = dangerLevel,
+                                    color = targetColor,
+                                    message = targetMessage,
                                     detail = buildAnnotatedString {
                                         append("Anda masih kekurangan ")
                                         withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
